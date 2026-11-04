@@ -276,22 +276,77 @@ async function fetchModel(url, label) {
 let ort, sess;
 
 const ops = {
-  async asr({ audio, model, language, task }) {
-    const { pipeline } = await TF(), g = await hasGPU();
+  async asr({ audio, model, language, task, windows, langs, multi, transcribeOnly = [] }) {
+    const { pipeline, Tensor } = await TF(), g = await hasGPU();
     const pipe = await pipeline('automatic-speech-recognition', model, {
       device: g ? 'webgpu' : 'wasm',
       dtype: g ? { encoder_model: 'fp32', decoder_model_merged: 'q4' } : 'q8',
       progress_callback: progress('Speech model'),
     });
     postMessage({ type: 'msg', text: `Recognizing speech on ${g ? 'GPU' : 'CPU'}` });
-    const opt = { return_timestamps: true, chunk_length_s: 30, stride_length_s: 5 };
-    if (language) opt.language = language;
-    if (task) opt.task = task;
-    const out = await pipe(audio, opt);
+    const SR = 16000, clip = ([s, e]) => audio.subarray(Math.round(s * SR), Math.round(e * SR));
+    // Whisper's own guess: the first decoder token after <|startoftranscript|> is the language
+    const ids = pipe.model.generation_config.lang_to_id, sot = pipe.model.generation_config.decoder_start_token_id;
+    async function detect(w) { // -> [[code, probability], ...] best first, only languages this page knows
+      const { input_features } = await pipe.processor(clip(w));
+      const out = await pipe.model({ input_features, decoder_input_ids: new Tensor('int64', BigInt64Array.from([BigInt(sot)]), [1, 1]) });
+      const v = out.logits.dims.at(-1), row = out.logits.data.slice(out.logits.data.length - v);
+      const sc = Object.keys(langs).map((k) => [k, row[ids[`<|${k}|>`]]]).filter((x) => x[1] != null);
+      const max = Math.max(...sc.map((x) => x[1])), z = sc.reduce((a, x) => a + Math.exp(x[1] - max), 0);
+      return sc.map(([k, s]) => [k, Math.exp(s - max) / z]).sort((a, b) => b[1] - a[1]);
+    }
+    let found = null;
+    if (!language && !multi) { // one language for the whole video: vote over the longest pieces
+      const sum = {}, pick = [...windows].sort((a, b) => (b[1] - b[0]) - (a[1] - a[0])).slice(0, 5);
+      for (const w of pick) for (const [k, pr] of await detect(w)) sum[k] = (sum[k] || 0) + pr / pick.length;
+      const [code, prob] = Object.entries(sum).sort((a, b) => b[1] - a[1])[0] || ['en', 0];
+      found = { code, prob };
+      language = langs[code];
+    }
+    // what Whisper makes up over music and noise: sound tags, repeated letters or words
+    const clean = (t) => t.replace(/\[[^\]]*\]|\([^)]*\)|♪+/g, ' ').replace(/\s+/g, ' ').trim();
+    const junk = (t) => !/\p{L}{2}/u.test(t) || /(.)\1{5,}/u.test(t) || /(\S.{0,15}?)(\s*\1){3,}/u.test(t);
+    const res = [], seen = {};
+    let prev = null;
+    for (let i = 0; i < windows.length; i++) { // short speech windows: fewer made-up lines over music, exact times
+      const [s, e] = windows[i];
+      let lang = language, code = null;
+      if (multi) { // each piece in its own language; pieces under 1.5 s are too short to tell, so keep the last one
+        const best = (await detect(windows[i]))[0]; // short pieces are hard to tell: keep the last language unless sure
+        code = e - s >= 1.5 || !prev || best[1] > 0.6 ? best[0] : prev;
+        prev = code; lang = langs[code]; seen[code] = (seen[code] || 0) + 1;
+      }
+      // some languages are better written down by Whisper and translated by NLLB (Whisper's English for Bengali is poor)
+      let t = code && transcribeOnly.includes(code) ? 'transcribe' : task;
+      const cap = { max_new_tokens: Math.min(440, Math.ceil((e - s) * 14) + 16) }; // stops Whisper looping on one word
+      let out = await pipe(clip(windows[i]), { return_timestamps: true, language: lang, ...cap, ...(t ? { task: t } : {}) });
+      if (t !== task && junk(clean(out.text || ''))) { // written down badly: let Whisper translate this piece instead
+        t = task;
+        out = await pipe(clip(windows[i]), { return_timestamps: true, language: lang, ...cap, ...(t ? { task: t } : {}) });
+      }
+      for (const c of out.chunks || [{ timestamp: [0, null], text: out.text }]) {
+        const cs = s + (c.timestamp[0] ?? 0), ce = c.timestamp[1] == null ? e : Math.min(e, s + c.timestamp[1]);
+        let text = c.text.trim();
+        // Whisper sometimes writes Bengali speech in Devanagari letters; the two alphabets sit 0x80 apart in Unicode
+        if ((code || '') === 'bn' || lang === 'bengali') {
+          const dev = (text.match(/[ऀ-ॿ]/g) || []).length, ben = (text.match(/[ঀ-৿]/g) || []).length;
+          if (dev > ben) text = text.replace(/[ऀ-ॿ]/g, (ch) => (ch === '।' || ch === '॥' ? ch : String.fromCharCode(ch.charCodeAt(0) + 0x80)));
+        }
+        res.push({ s: cs, e: Math.max(ce, cs + 0.3), t: text, ...(code ? { lang: code, task: t } : {}) });
+      }
+      step('Recognizing speech', i + 1, windows.length);
+    }
+    if (multi) found = { multi: seen };
     await pipe.dispose();
-    return (out.chunks || [{ timestamp: [0, null], text: out.text }])
-      .map((c) => ({ s: c.timestamp[0] ?? 0, e: c.timestamp[1], t: c.text.trim() }))
-      .filter((c) => c.t);
+    // drop the made-up pieces, and a line repeated many times (a loop, not speech)
+    const kept = [];
+    for (const c of res) {
+      c.t = clean(c.t);
+      if (!c.t || junk(c.t) || c.e - c.s > 30) continue;
+      if (kept.filter((k) => k.t === c.t).length >= 2) continue; // a line repeated many times is a loop, not speech
+      kept.push(c);
+    }
+    return { chunks: kept, found, dropped: res.length - kept.length };
   },
 
   async spk({ clips }) {
@@ -314,10 +369,12 @@ const ops = {
     const pipe = await pipeline('translation', 'Xenova/nllb-200-distilled-600M', { device: 'wasm', dtype: 'q8', progress_callback: progress('Translation model') });
     const res = [];
     for (let i = 0; i < texts.length; i++) {
+      const sl = Array.isArray(src) ? src[i] : src; // several languages: each line has its own
+      if (sl === tgt) { res.push(texts[i]); step('Translating', i + 1, texts.length); continue; }
       // NLLB sometimes drops a sentence when given several at once, so translate them one by one
       const parts = texts[i].split(/(?<=[.?!।。？！])\s+/).filter((x) => x.trim());
       const done = [];
-      for (const s of parts) done.push((await pipe(s, { src_lang: src, tgt_lang: tgt, max_new_tokens: 300 }))[0].translation_text.replace(/^[-–—\s]+/, ''));
+      for (const s of parts) done.push((await pipe(s, { src_lang: sl, tgt_lang: tgt, max_new_tokens: 300 }))[0].translation_text.replace(/^[-–—\s]+/, ''));
       res.push(done.join(' '));
       step('Translating', i + 1, texts.length);
     }
@@ -440,7 +497,7 @@ const STEPS = { audio: 'Read the audio', sep: 'Separate voices from music', asr:
 
 // ---- form ----
 const names = Object.entries(LANGS).sort((a, b) => a[1][0].localeCompare(b[1][0]));
-$('src').innerHTML = '<option value="auto">Detect automatically</option>' + names.map(([k, v]) => `<option value="${k}">${v[0]}</option>`).join('');
+$('src').innerHTML = '<option value="auto">Detect automatically</option><option value="multi">Several languages (find each line\'s language)</option>' + names.map(([k, v]) => `<option value="${k}">${v[0]}</option>`).join('');
 $('tgt').innerHTML = '<option value="keep">Keep the original language (only improve the picture)</option>' + names.map(([k, v]) => `<option value="${k}">${v[0]}${v[3] ? '' : ' — subtitles only'}</option>`).join('');
 $('tgt').value = 'bn';
 function langUI() {
@@ -719,11 +776,30 @@ function guess(t) { // guess the language from its script (Latin script → Engl
   const [k, v] = Object.entries(c).sort((a, b) => b[1] - a[1])[0];
   return v > t.length * 0.2 ? k : 'en';
 }
+function speechWindows(x, dur, joinGap = 1.5) { // where someone (or something) is loud enough to be speech, in windows of at most 25 s
+  const SR = 16000, F = Math.round(SR * 0.03), n = Math.floor(x.length / F), en = new Float32Array(n);
+  for (let i = 0; i < n; i++) { let s = 0; for (let k = 0; k < F; k += 2) s += x[i * F + k] ** 2; en[i] = Math.sqrt(s / (F / 2)); }
+  const sorted = Float32Array.from(en).sort(), th = Math.max(0.008, sorted[Math.floor(n * 0.2)] * 3);
+  const regs = [];
+  for (let i = 0; i < n; i++) {
+    if (en[i] < th) continue;
+    const t = i * 0.03, last = regs[regs.length - 1];
+    if (last && t - last[1] < 0.6) last[1] = t + 0.03; else regs.push([t, t + 0.03]);
+  }
+  const wins = [];
+  for (let [s, e] of regs.filter((r) => r[1] - r[0] >= 0.4)) {
+    s = Math.max(0, s - 0.2); e = Math.min(dur, e + 0.2);
+    const last = wins[wins.length - 1];
+    if (last && s - last[1] < joinGap && e - last[0] <= 25) { last[1] = e; continue; }
+    for (let a = s; a < e; a += 25) wins.push([a, Math.min(e, a + 25)]);
+  }
+  return wins;
+}
 function merge(raw) { // join Whisper pieces into whole sentences, so translation has context
   const out = [];
   for (const c of raw) {
     const p = out[out.length - 1];
-    if (p && !/[.?!।。？！]["'”)\]]?$/.test(p.t) && c.s - p.e < 1 && c.e - p.s < 15) { p.t += ' ' + c.t; p.e = c.e; }
+    if (p && p.lang === c.lang && p.task === c.task && !/[.?!।。？！]["'”)\]]?$/.test(p.t) && c.s - p.e < 1 && c.e - p.s < 15) { p.t += ' ' + c.t; p.e = c.e; }
     else out.push({ ...c });
   }
   return out;
@@ -783,7 +859,7 @@ function editor() {
   const opt = (sel) => speakers.map((_, k) => `<option value="${k}"${k === sel ? ' selected' : ''}>${esc(spkName(k))}</option>`).join('');
   $('tab').innerHTML = segs.map((s, i) => `<tr><td class="t">${clock(s.s).slice(3, 8)}</td>`
     + `<td class="s">${speakers.length > 1 ? `<select data-s="${i}">${opt(s.spk)}</select>` : ''}</td>`
-    + `<td><small>${esc(s.t)}</small><textarea data-i="${i}" aria-label="Translation at ${clock(s.s).slice(3, 8)}">${esc(s.tr)}</textarea></td></tr>`).join('');
+    + `<td><small>${s.lang ? `<b>${esc(LANGS[s.lang][0])}:</b> ` : ''}${esc(s.t)}</small><textarea data-i="${i}" aria-label="Translation at ${clock(s.s).slice(3, 8)}">${esc(s.tr)}</textarea></td></tr>`).join('');
   $('edit').hidden = false;
 }
 $('edit').addEventListener('input', (e) => { const i = e.target.dataset.i; if (i) { segs[i].tr = e.target.value; refreshSrt(); } });
@@ -851,13 +927,14 @@ $('start').onclick = async () => {
   if ($('tgt').value === 'keep') return pictureOnly();
   const src = $('src').value, tgt = $('tgt').value, sep = $('bg').value === 'ai';
   if (src === tgt) { $('err').textContent = 'The two languages are the same. Choose a different language to change to.'; $('err').hidden = false; $('prog').hidden = false; return; }
-  const direct = tgt === 'en' && src !== 'en'; // into English, Whisper translates by itself
+  // into English Whisper can translate by itself; with several languages it writes each line down and NLLB translates (better for Bengali)
+  const direct = tgt === 'en' && src !== 'en';
   const hasVoice = !!LANGS[tgt][3];
   const asr = $('asr').value === 'auto' ? ASR_FAST : $('asr').value; // Accurate (whisper-small) needs a lot of memory, so only on request
   busy(true); resetOut(); segs = []; speakers = []; bgCache = null;
   for (const k in stepT) delete stepT[k];
   $('err').hidden = true; $('prog').hidden = false; $('res').hidden = true; $('edit').hidden = true;
-  plan(['audio', ...(sep && hasVoice ? ['sep'] : []), 'asr', 'spk', ...(direct ? [] : ['mt']), ...(hasVoice ? ['tts', 'mix'] : []), ...(hasVoice && (info.w || file.type.startsWith('video/')) ? ['video', ...(picMode() === 'ai' ? ['up'] : [])] : [])]);
+  plan(['audio', ...(sep && hasVoice ? ['sep'] : []), 'asr', 'spk', ...(direct && src !== 'multi' ? [] : ['mt']), ...(hasVoice ? ['tts', 'mix'] : []), ...(hasVoice && (info.w || file.type.startsWith('video/')) ? ['video', ...(picMode() === 'ai' ? ['up'] : [])] : [])]);
   try {
     mark('audio');
     let a16 = await pcm(['-ac', '1', '-ar', '16000']);
@@ -870,11 +947,21 @@ $('start').onclick = async () => {
       bgCache = { mode: 'ai', bg }; a16 = vox; // clean voices help speech and speaker recognition
     }
     mark('asr');
-    const raw = await once('asr', {
-      audio: a16.slice(), model: asr,
-      language: src === 'auto' ? null : LANGS[src][2], task: direct ? 'translate' : 'transcribe',
+    const windows = speechWindows(a16, dur, src === 'multi' ? 0.5 : 1.5); // several languages: a new piece at every pause
+    if (!windows.length) throw new Error('No speech was found in this file.');
+    const r = await once('asr', {
+      audio: a16.slice(), model: asr, windows, langs: Object.fromEntries(Object.entries(LANGS).map(([k, v]) => [k, v[2]])),
+      language: src === 'auto' || src === 'multi' ? null : LANGS[src][2], task: direct ? 'translate' : 'transcribe', multi: src === 'multi',
+      transcribeOnly: src === 'multi' && direct ? ['bn'] : [],
     });
-    if (!raw.length) throw new Error('No speech was found in this file.');
+    const raw = r.chunks;
+    if (r.dropped) log(`Left out ${r.dropped} piece(s) that were music or noise, not speech.`);
+    if (r.found?.multi) log('Languages found: ' + Object.entries(r.found.multi).map(([k, n]) => `${LANGS[k][0]} ${n}`).join(', '));
+    else if (r.found) {
+      log(`Detected language: ${LANGS[r.found.code][0]} (${Math.round(r.found.prob * 100)}% sure)`);
+      if (r.found.prob < 0.6) note(`Not sure which language is spoken (best guess: ${LANGS[r.found.code][0]}, ${Math.round(r.found.prob * 100)}%). If the text below looks wrong, choose the language under "Spoken in" and start again.`);
+    }
+    if (!raw.length) throw new Error('No clear speech was found: this video seems to be music or noise only.');
     raw.forEach((c, i) => { if (c.e == null || c.e <= c.s) c.e = Math.min(raw[i + 1]?.s ?? dur, c.s + 8); });
     segs = merge(raw);
     segs.forEach((c, i) => { if (segs[i + 1]) c.e = Math.min(c.e, segs[i + 1].s); });
@@ -882,12 +969,25 @@ $('start').onclick = async () => {
     await findSpeakers(a16);
     a16 = null;
     let out = segs.map((c) => c.t);
+    if (src === 'multi' && direct && segs.some((c) => c.task === 'transcribe')) { // Bengali lines still need NLLB
+      const idx = segs.map((c, i) => (c.task === 'transcribe' ? i : -1)).filter((i) => i >= 0);
+      mark('mt');
+      const tr = await once('mt', { texts: idx.map((i) => out[i]), src: idx.map((i) => LANGS[segs[i].lang][1]), tgt: LANGS.en[1] });
+      idx.forEach((i, k) => (out[i] = tr[k]));
+    }
     if (!direct) {
-      const s = src === 'auto' ? guess(out.join(' ')) : src;
-      if (src === 'auto') log(`Detected language: ${LANGS[s][0]}`);
-      if (s !== tgt) { mark('mt'); out = await once('mt', { texts: out, src: LANGS[s][1], tgt: LANGS[tgt][1] }); }
+      if (src === 'multi') {
+        const srcs = segs.map((c) => LANGS[c.lang || 'en'][1]);
+        if (srcs.some((x) => x !== LANGS[tgt][1])) { mark('mt'); out = await once('mt', { texts: out, src: srcs, tgt: LANGS[tgt][1] }); }
+      } else {
+        const s = src === 'auto' ? (r.found ? r.found.code : guess(out.join(' '))) : src;
+        if (s !== tgt) { mark('mt'); out = await once('mt', { texts: out, src: LANGS[s][1], tgt: LANGS[tgt][1] }); }
+      }
     }
     segs.forEach((c, i) => (c.tr = out[i]));
+    const talk = segs.reduce((a, c) => a + c.e - c.s, 0);
+    log(`Speech found: ${Math.round(talk)} s of ${Math.round(dur)} s`);
+    if (talk < dur * 0.15) note(`Only ${Math.round(talk)} seconds of speech were found in this ${Math.round(dur / 60)}-minute video, so the new voice is heard only there. The rest (music) stays as it is.`);
     editor();
     $('res').hidden = false; refreshSrt();
     if (!hasVoice) { finish(); note(`${LANGS[tgt][0]} has no voice yet. Download the translated subtitles above.`); }
