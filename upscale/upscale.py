@@ -4,15 +4,20 @@
   python upscale.py VIDEO --to 4k    2k | 4k | 8k   [--model photo|anime] [--check]
 
 Also used by ../server.py when the web page picks "AI upscale".
-Needs ffmpeg + ffprobe (C:\\ffmpeg\\bin or on PATH). The first run downloads
-realesrgan-ncnn-vulkan (45 MB, github.com/xinntao/Real-ESRGAN) into this folder.
+Works on Windows, Linux and macOS. The first run downloads realesrgan-ncnn-vulkan
+(45-50 MB, github.com/xinntao/Real-ESRGAN) into this folder, and ffmpeg too when it is
+missing (Windows and Linux; on macOS install it with: brew install ffmpeg).
 The video is done in small chunks, so the disk only ever holds a few hundred frames,
 and an interrupted run continues where it stopped.
 """
-import argparse, json, os, shutil, subprocess, sys, time, urllib.request, zipfile
+import argparse, json, os, shutil, stat, subprocess, sys, tarfile, time, urllib.request, zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-TOOL_URL = 'https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-windows.zip'
+WIN, MAC = sys.platform == 'win32', sys.platform == 'darwin'
+EXE = '.exe' if WIN else ''
+_REL = 'https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-'
+TOOL_URL = _REL + ('windows.zip' if WIN else 'macos.zip' if MAC else 'ubuntu.zip')
+TOOL_EXE = 'realesrgan-ncnn-vulkan' + EXE
 TOOL_DIR = os.path.join(HERE, 'realesrgan')
 TARGETS = {'2k': 1440, '4k': 2160, '8k': 4320}
 MODELS = {'photo': 'realesrgan-x4plus', 'anime': 'realesr-animevideov3'}
@@ -24,15 +29,17 @@ class Stopped(Exception):
     pass
 
 
-FF_URL = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip'
+_FF = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-'
+FF_URL = None if MAC else _FF + ('win64-gpl.zip' if WIN else 'linux64-gpl.tar.xz')  # macOS: use Homebrew
 FF_DIR = os.path.join(HERE, 'ffmpeg')
 
 
 def find(name):
     for root, _, files in os.walk(FF_DIR):  # our own copy, set up on first use
-        if name + '.exe' in files:
-            return os.path.join(root, name + '.exe')
-    for p in (os.path.join(r'C:\ffmpeg\bin', name + '.exe'), shutil.which(name)):
+        if name + EXE in files:
+            return os.path.join(root, name + EXE)
+    extra = ['C:/ffmpeg/bin'] if WIN else ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin']
+    for p in [os.path.join(d, name + EXE) for d in extra] + [shutil.which(name)]:
         if p and os.path.exists(p):
             return p
     return None
@@ -42,8 +49,8 @@ FFMPEG, FFPROBE = find('ffmpeg'), find('ffprobe')
 
 
 def download(url, dest_dir, label, log):
-    """Download a zip with progress and unpack it into dest_dir."""
-    z = dest_dir + '.zip'
+    """Download a .zip or .tar.xz with progress and unpack it into dest_dir."""
+    z = dest_dir + ('.tar.xz' if url.endswith('.tar.xz') else '.zip')
     last = [-1]
     def hook(n, size, total):  # report every 10 %, not every block
         if total > 0:
@@ -52,18 +59,30 @@ def download(url, dest_dir, label, log):
                 last[0] = pct
                 log(f'Setting up {label}: {pct}%', pct / 100)
     urllib.request.urlretrieve(url, z, hook)
-    with zipfile.ZipFile(z) as f:
-        f.extractall(dest_dir)
+    if z.endswith('.zip'):
+        with zipfile.ZipFile(z) as f:
+            f.extractall(dest_dir)
+    else:
+        with tarfile.open(z) as f:
+            f.extractall(dest_dir)
     os.remove(z)
+    if not WIN:  # zip files do not keep the "executable" flag
+        for root, _, files in os.walk(dest_dir):
+            for n in files:
+                if '.' not in n or n.endswith(('.dylib', '.so')):
+                    full = os.path.join(root, n)
+                    os.chmod(full, os.stat(full).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
 def ensure_ffmpeg(log=print):
     global FFMPEG, FFPROBE
     if not (FFMPEG and FFPROBE):
-        download(FF_URL, FF_DIR, 'ffmpeg (200 MB, one time)', log)
+        if not FF_URL:
+            raise RuntimeError('ffmpeg is needed. Install it with: brew install ffmpeg   (see https://brew.sh)')
+        download(FF_URL, FF_DIR, 'ffmpeg (150-200 MB, one time)', log)
         FFMPEG, FFPROBE = find('ffmpeg'), find('ffprobe')
         if not (FFMPEG and FFPROBE):
-            raise RuntimeError('The ffmpeg download did not contain ffmpeg.exe.')
+            raise RuntimeError('The ffmpeg download did not contain ffmpeg.')
     return FFMPEG
 
 
@@ -76,17 +95,17 @@ def run(cmd, cwd=None):
 
 def tool_path():
     for root, _, files in os.walk(TOOL_DIR):
-        if 'realesrgan-ncnn-vulkan.exe' in files:
-            return os.path.join(root, 'realesrgan-ncnn-vulkan.exe')
+        if TOOL_EXE in files:
+            return os.path.join(root, TOOL_EXE)
     return None
 
 
 def tool(log=print):
     if tool_path():
         return tool_path()
-    download(TOOL_URL, TOOL_DIR, 'Real-ESRGAN (45 MB, one time)', log)
+    download(TOOL_URL, TOOL_DIR, 'Real-ESRGAN (45-50 MB, one time)', log)
     if not tool_path():
-        raise RuntimeError('The Real-ESRGAN download did not contain realesrgan-ncnn-vulkan.exe.')
+        raise RuntimeError(f'The Real-ESRGAN download did not contain {TOOL_EXE}.')
     return tool_path()
 
 
@@ -122,19 +141,24 @@ def probe(src):
 
 def encoder(height):
     """Up to 4K: H.264 at a moderate bitrate, which almost every player can play smoothly.
-    8K: HEVC, because H.264 cannot go wider than 4096. NVENC on the graphics card, CPU encoder as fallback."""
+    8K: HEVC, because H.264 cannot go wider than 4096.
+    Tries NVIDIA NVENC, then Apple VideoToolbox (macOS), then the CPU encoder."""
     hevc = height > 2160
     rate = {1440: '8M', 2160: '12M'}.get(height, '40M')
     peak = f'{int(rate[:-1]) * 2}M'
-    name = 'hevc_nvenc' if hevc else 'h264_nvenc'
-    try:
-        run([FFMPEG, '-v', 'error', '-f', 'lavfi', '-i', 'color=s=256x256', '-frames:v', '1', '-c:v', name, '-f', 'null', '-'])
-        return ['-c:v', name, '-preset', 'p5', '-rc', 'vbr', '-b:v', rate, '-maxrate', peak, '-bufsize', peak,
-                *(['-tag:v', 'hvc1'] if hevc else ['-profile:v', 'high'])], f'NVIDIA NVENC {"HEVC" if hevc else "H.264"}'
-    except RuntimeError:
-        cpu = 'libx265' if hevc else 'libx264'
-        return ['-c:v', cpu, '-preset', 'medium', '-crf', '21', '-maxrate', peak, '-bufsize', peak,
-                *(['-tag:v', 'hvc1'] if hevc else [])], f'CPU ({cpu}, slow)'
+    tag = ['-tag:v', 'hvc1'] if hevc else ['-profile:v', 'high']
+    tries = [('hevc_nvenc' if hevc else 'h264_nvenc', ['-preset', 'p5', '-rc', 'vbr', '-b:v', rate, '-maxrate', peak, '-bufsize', peak], 'NVIDIA NVENC')]
+    if MAC:
+        tries.append(('hevc_videotoolbox' if hevc else 'h264_videotoolbox', ['-b:v', rate, '-maxrate', peak], 'Apple VideoToolbox'))
+    for name, opts, label in tries:
+        try:
+            run([FFMPEG, '-v', 'error', '-f', 'lavfi', '-i', 'color=s=256x256', '-frames:v', '1', '-c:v', name, '-f', 'null', '-'])
+            return ['-c:v', name, *opts, *tag], f'{label} {"HEVC" if hevc else "H.264"}'
+        except RuntimeError:
+            pass
+    cpu = 'libx265' if hevc else 'libx264'
+    return ['-c:v', cpu, '-preset', 'medium', '-crf', '21', '-maxrate', peak, '-bufsize', peak,
+            *(['-tag:v', 'hvc1'] if hevc else [])], f'CPU ({cpu}, slow)'
 
 
 def fmt(sec):

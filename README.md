@@ -12,13 +12,19 @@ Dub a video into another language, right on your own computer. Nothing is upload
 
 ## Run
 
-Double-click **serve.cmd**. It starts a small local server on `http://localhost:8000` (this computer only)
-and opens the page. Python 3.8+ is needed; serve.cmd offers to install it with winget if it is missing.
+| System | Start | AI upscale |
+|---|---|---|
+| Windows | double-click **serve.cmd** | NVIDIA or AMD graphics card |
+| macOS | double-click **serve.command** (or `./serve.sh`) | Apple chip (M1/M2/...) or AMD; first `brew install ffmpeg` |
+| Linux | `./serve.sh` | NVIDIA or AMD card with Vulkan drivers |
+
+It starts a small local server on `http://localhost:8000` (this computer only) and opens the page.
+Python 3.8+ is needed; on Windows serve.cmd offers to install it with winget.
 
 Opening `index.html` directly also works, but then models are not cached and the AI upscale option is off.
 
 The first run downloads the AI models (about 1.3 GB) into the browser cache. The first AI upscale
-downloads Real-ESRGAN (45 MB) and, if missing, ffmpeg (200 MB) into `upscale/`.
+downloads Real-ESRGAN (45-50 MB) and, on Windows and Linux, ffmpeg (150-200 MB) if it is missing.
 
 ## Upscale from the command line
 
@@ -26,4 +32,7 @@ downloads Real-ESRGAN (45 MB) and, if missing, ffmpeg (200 MB) into `upscale/`.
 python upscale/upscale.py VIDEO --to 4k --model photo   # 2k | 4k | 8k, photo | anime
 ```
 
-Or drag a video onto `upscale/upscale.cmd`.
+Or drag a video onto `upscale/upscale.cmd` (Windows), or run `./upscale/upscale.sh VIDEO --to 4k` (macOS / Linux).
+
+On macOS the first run of the Real-ESRGAN tool may be blocked by Gatekeeper; allow it in
+System Settings > Privacy & Security, then run again.

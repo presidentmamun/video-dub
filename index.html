@@ -486,7 +486,8 @@ let aiJob = null;
   if (!location.protocol.startsWith('http')) { info.textContent = 'Not available here: open the page with serve.cmd to use this computer\'s graphics card.'; return; }
   try {
     const s = await (await fetch('/api/status', { headers: { 'X-VD': '1' } })).json();
-    if (!s.gpu) { info.textContent = 'Not available: no NVIDIA or AMD graphics card was found on this computer.'; return; }
+    if (!s.gpu) { info.textContent = 'Not available: no NVIDIA, AMD or Apple graphics was found on this computer.'; return; }
+    if (s.blocker) { info.textContent = `${s.gpu.name}: not available yet, ${s.blocker}`; return; }
     $('aisize').innerHTML = s.sizes.map((z) => `<option value="${z}"${z === '4k' ? ' selected' : ''}>${z.toUpperCase()} (${{ '2k': '1440p', '4k': '2160p', '8k': '4320p' }[z]})</option>`).join('');
     info.textContent = `${s.gpu.name}${s.gpu.vram_gb ? ` · ${s.gpu.vram_gb} GB` : ''} · up to ${s.sizes[s.sizes.length - 1].toUpperCase()}. Slow: long videos can take hours.`
       + (s.setup.length ? ` The first time it sets up ${s.setup.join(' and ')} by itself.` : '');

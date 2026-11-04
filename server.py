@@ -17,27 +17,50 @@ JOBS, LOCK = {}, threading.Lock()
 NOWIN = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
 
 
+def _out(cmd, timeout=20):
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, creationflags=NOWIN)
+        return r.stdout if r.returncode == 0 else ''
+    except (OSError, subprocess.SubprocessError):
+        return ''
+
+
 def gpu_info():
-    """The strongest graphics card: NVIDIA via nvidia-smi, otherwise AMD/Intel Arc from Windows."""
-    try:
-        r = subprocess.run(['nvidia-smi', '--query-gpu=name,memory.total', '--format=csv,noheader,nounits'],
-                           capture_output=True, text=True, timeout=10, creationflags=NOWIN)
-        if r.returncode == 0 and r.stdout.strip():
-            name, mem = r.stdout.strip().splitlines()[0].rsplit(',', 1)
+    """The strongest graphics card. NVIDIA via nvidia-smi on every system; otherwise
+    Windows: AMD/Intel Arc from WMI; macOS: Apple or AMD from system_profiler; Linux: lspci."""
+    out = _out(['nvidia-smi', '--query-gpu=name,memory.total', '--format=csv,noheader,nounits'], 10).strip()
+    if out:
+        try:
+            name, mem = out.splitlines()[0].rsplit(',', 1)
             return {'name': name.strip(), 'vram_gb': round(int(mem) / 1024, 1)}
-    except (OSError, ValueError, subprocess.SubprocessError):
-        pass
-    try:
-        r = subprocess.run(['powershell', '-NoProfile', '-Command',
-                            'Get-CimInstance Win32_VideoController | Select-Object Name,AdapterRAM | ConvertTo-Json'],
-                           capture_output=True, text=True, timeout=20, creationflags=NOWIN)
-        cards = json.loads(r.stdout or '[]')
+        except ValueError:
+            pass
+    if sys.platform == 'win32':
+        try:
+            cards = json.loads(_out(['powershell', '-NoProfile', '-Command',
+                                     'Get-CimInstance Win32_VideoController | Select-Object Name,AdapterRAM | ConvertTo-Json']) or '[]')
+        except ValueError:
+            cards = []
         for c in cards if isinstance(cards, list) else [cards]:
             n = c.get('Name') or ''
             if any(k in n.lower() for k in ('radeon', 'amd', 'arc')):
                 return {'name': n, 'vram_gb': round((c.get('AdapterRAM') or 0) / 2**30, 1)}  # AdapterRAM caps at 4 GB
-    except (OSError, ValueError, subprocess.SubprocessError):
-        pass
+    elif sys.platform == 'darwin':
+        try:
+            cards = json.loads(_out(['system_profiler', 'SPDisplaysDataType', '-json']) or '{}').get('SPDisplaysDataType', [])
+        except ValueError:
+            cards = []
+        if cards:
+            name = cards[0].get('sppci_model', 'Mac graphics')
+            mem = _out(['sysctl', '-n', 'hw.memsize']).strip()
+            # Apple chips share memory with the system: count about half of it for the graphics
+            vram = round(int(mem) / 2**31, 1) if mem.isdigit() and 'apple' in name.lower() else 0
+            return {'name': name, 'vram_gb': vram}
+    else:
+        for line in _out(['lspci']).splitlines():
+            low = line.lower()
+            if ('vga' in low or '3d' in low) and any(k in low for k in ('nvidia', 'amd', 'radeon', 'arc')):
+                return {'name': line.split(': ', 1)[-1], 'vram_gb': 0}
     return None
 
 
@@ -45,13 +68,17 @@ GPU = gpu_info()
 
 
 def status():
-    need = []
+    need, blocker = [], None
     if not (up.FFMPEG and up.FFPROBE):
-        need.append('ffmpeg (200 MB)')
+        if up.FF_URL:
+            need.append('ffmpeg (150-200 MB)')
+        else:  # macOS: we do not download ffmpeg there
+            blocker = 'install ffmpeg first with: brew install ffmpeg (then restart serve.command).'
+    
     if not up.tool_path():
-        need.append('Real-ESRGAN (45 MB)')
-    sizes = ['2k', '4k'] + (['8k'] if GPU and GPU['vram_gb'] >= 6 else [])
-    return {'gpu': GPU, 'sizes': sizes if GPU else [], 'setup': need}
+        need.append('Real-ESRGAN (45-50 MB)')
+    sizes = ['2k', '4k'] + (['8k'] if GPU and GPU['vram_gb'] >= 6 else [])  # vram 0 = unknown: no 8K
+    return {'gpu': GPU, 'sizes': sizes if GPU and not blocker else [], 'setup': need, 'blocker': blocker}
 
 
 def start_job(path, to, model):
