@@ -245,6 +245,41 @@ def upscale(src, to='4k', model='photo', out=None, log=plain_log, stop=lambda: F
     return out
 
 
+SHARE_KBPS = {1080: 2500, 720: 1500}
+
+
+def shrink(src, height=1080, out=None, log=plain_log, stop=lambda: False):
+    """A smaller copy for sending to someone: H.264 at a low bitrate, made smaller than `height` if taller.
+    Uses NVENC, then VideoToolbox on macOS, then the CPU."""
+    ensure_ffmpeg(log)
+    src = os.path.abspath(src)
+    w, h, rate, fps, dur, has_audio = probe(src)
+    kbps = SHARE_KBPS[height]
+    out = out or f'{os.path.splitext(src)[0]}-{height}p-share.mp4'
+    vf = ([f'scale=-2:{height}:flags=lanczos'] if h > height else []) + ['format=yuv420p']
+    tries = [('h264_nvenc', ['-preset', 'p6', '-rc', 'vbr'])] + ([('h264_videotoolbox', [])] if MAC else []) + [('libx264', ['-preset', 'veryfast'])]
+    err = ''
+    for name, opts in tries:
+        cmd = [FFMPEG, '-v', 'error', '-y', '-i', src, '-vf', ','.join(vf), '-c:v', name, *opts,
+               '-b:v', f'{kbps}k', '-maxrate', f'{kbps * 3 // 2}k', '-bufsize', f'{kbps * 3}k', '-profile:v', 'high',
+               *(['-c:a', 'aac', '-b:a', '96k'] if has_audio else []), '-movflags', '+faststart',
+               '-progress', 'pipe:1', '-nostats', out]
+        log(f'Making a smaller copy ({height}p)...', 0)
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, creationflags=NOWIN)
+        for line in p.stdout:  # ffmpeg reports its position as out_time_us=...
+            if stop():
+                p.kill()
+                raise Stopped()
+            if line.startswith('out_time_us=') and line[12:].strip().isdigit() and dur:
+                done = int(line[12:]) / 1e6 / dur
+                log(f'Making a smaller copy ({height}p): {min(99, int(done * 100))}%', min(1, done))
+        err = p.stderr.read()
+        if p.wait() == 0:
+            log(f'Done: {os.path.getsize(out) / 1e6:.0f} MB', 1)
+            return out
+    raise RuntimeError('Could not make the smaller copy:\n' + err[-800:])
+
+
 def main():
     ap = argparse.ArgumentParser(description='Upscale a video with Real-ESRGAN.')
     ap.add_argument('video')

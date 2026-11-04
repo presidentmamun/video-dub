@@ -48,6 +48,8 @@ ol.steps li.done{color:var(--fg)}ol.steps li.done::before{content:"✓";color:va
 .err{background:color-mix(in srgb,var(--bad) 12%,transparent);color:var(--bad);border-radius:8px;padding:10px;margin:0}
 .notes{margin:0;padding-left:20px;font-size:14px;color:var(--warn)}
 .downloads{display:flex;flex-wrap:wrap;gap:8px}
+.share{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:15px}
+.share .btn{padding:8px 14px}
 video{width:100%;border-radius:8px;background:#000}
 .spk{display:flex;flex-wrap:wrap;gap:8px}
 .spk label{display:flex;gap:6px;align-items:center;font-size:14px;border:1px solid var(--line);border-radius:999px;padding:2px 4px 2px 10px}
@@ -151,6 +153,11 @@ footer{font-size:13px;color:var(--muted)}
     <h2>Result</h2>
     <div id="vd-player"></div>
     <div class="downloads" id="vd-dl"></div>
+    <div class="share" id="vd-share" hidden>
+      <span>Too big to send? Make a smaller copy:</span>
+      <button class="btn ghost" data-h="1080">1080p (about 20 MB a minute)</button>
+      <button class="btn ghost" data-h="720">720p (about 12 MB a minute)</button>
+    </div>
     <ul class="notes" id="vd-notes"></ul>
   </section>
 
@@ -429,7 +436,7 @@ const KOKORO_NAMES = { am_michael: 'Michael (man, US)', bm_george: 'George (man,
 const ASR_FAST = 'onnx-community/whisper-base', ASR_GOOD = 'onnx-community/whisper-small';
 const MAX_SPEED = 1.5, SR = 24000, SEP_WIN = 120, SEP_MARGIN = 1, SPK_TH = 0.6, MALE_F0 = 165;
 const BG_VOL = { none: 0, orig: 15, ai: 100, fast: 100 };
-const STEPS = { audio: 'Read the audio', sep: 'Separate voices from music', asr: 'Recognize speech', spk: 'Find the speakers', mt: 'Translate', tts: 'Make the new voices', mix: 'Mix the audio', video: 'Build the video', pic: 'Improve the picture', up: 'AI upscale with the graphics card' };
+const STEPS = { audio: 'Read the audio', sep: 'Separate voices from music', asr: 'Recognize speech', spk: 'Find the speakers', mt: 'Translate', tts: 'Make the new voices', mix: 'Mix the audio', video: 'Build the video', share: 'Make a smaller copy', pic: 'Improve the picture', up: 'AI upscale with the graphics card' };
 
 // ---- form ----
 const names = Object.entries(LANGS).sort((a, b) => a[1][0].localeCompare(b[1][0]));
@@ -480,12 +487,13 @@ document.querySelectorAll('input[name=pic]').forEach((r) => (r.onchange = () => 
   $('quickopts').hidden = picMode() !== 'quick';
   $('aisize').disabled = $('aimodel').disabled = picMode() !== 'ai'; // always visible, usable when AI is chosen
 }));
-let aiJob = null;
+let aiJob = null, serverOK = false, lastOut = null; // lastOut: {blob} or {job}, plus name
 (async () => { // ask the local server (serve.cmd) whether this PC has a usable graphics card
   const info = $('aiinfo');
   if (!location.protocol.startsWith('http')) { info.textContent = 'Not available here: open the page with serve.cmd to use this computer\'s graphics card.'; return; }
   try {
     const s = await (await fetch('/api/status', { headers: { 'X-VD': '1' } })).json();
+    serverOK = true;
     if (!s.gpu) { info.textContent = 'Not available: no NVIDIA, AMD or Apple graphics was found on this computer.'; return; }
     if (s.blocker) { info.textContent = `${s.gpu.name}: not available yet, ${s.blocker}`; return; }
     $('aisize').innerHTML = s.sizes.map((z) => `<option value="${z}"${z === '4k' ? ' selected' : ''}>${z.toUpperCase()} (${{ '2k': '1440p', '4k': '2160p', '8k': '4320p' }[z]})</option>`).join('');
@@ -494,23 +502,27 @@ let aiJob = null;
     $('ai').disabled = false;
   } catch { info.textContent = 'Not available here: open the page with serve.cmd to use this computer\'s graphics card.'; }
 })();
+async function follow(id) { // wait for a server job, showing its progress
+  aiJob = id;
+  try {
+    for (;;) {
+      await new Promise((ok) => setTimeout(ok, 1500));
+      const s = await (await fetch('/api/job/' + id, { headers: { 'X-VD': '1' } })).json();
+      if (s.frac != null) bar(s.frac);
+      stat(s.text);
+      if (s.state === 'done') return s;
+      if (s.state !== 'running') throw Object.assign(new Error(s.text), { cancel: s.state === 'stopped' });
+    }
+  } finally { aiJob = null; }
+}
 async function aiUpscale(blob, name) { // send the video to the local server and follow its progress
   mark('up'); stat('Sending the video to the upscaler…');
   const r = await fetch(`/api/upscale?to=${$('aisize').value}&model=${$('aimodel').value}`, {
     method: 'POST', headers: { 'X-VD': '1', 'X-Name': encodeURIComponent(name) }, body: blob });
   const j = await r.json();
   if (!r.ok) throw new Error(j.error || 'The upscaler did not start.');
-  aiJob = j.id;
-  try {
-    for (;;) {
-      await new Promise((ok) => setTimeout(ok, 1500));
-      const s = await (await fetch('/api/job/' + j.id, { headers: { 'X-VD': '1' } })).json();
-      if (s.frac != null) bar(s.frac);
-      stat(s.text);
-      if (s.state === 'done') break;
-      if (s.state !== 'running') throw Object.assign(new Error(s.text), { cancel: s.state === 'stopped' });
-    }
-  } finally { aiJob = null; }
+  await follow(j.id);
+  lastOut = { job: j.id, name };
   const u = '/api/job/' + j.id + '/file';
   $('player').innerHTML = `<video controls src="${u}"></video>`;
   $('dl').insertAdjacentHTML('afterbegin', `<a class="btn" href="${u}?dl=1" download>⬇ Video, ${$('aisize').value.toUpperCase()}</a>`);
@@ -797,7 +809,7 @@ function refreshSrt() {
 }
 function resetOut() {
   made.splice(0).forEach(URL.revokeObjectURL); srtA = null;
-  $('dl').innerHTML = ''; $('player').innerHTML = ''; $('notes').innerHTML = '';
+  $('dl').innerHTML = ''; $('player').innerHTML = ''; $('notes').innerHTML = ''; $('share').hidden = true;
 }
 
 // ---- background track (cached between rebuilds) ----
@@ -934,6 +946,7 @@ async function makeVoice(fromStart) {
       const a = addOut(blob, stem() + '.' + ext, picMode() === 'ai' ? 'Video, original size' : 'Video', picMode() === 'ai');
       $('dl').prepend(a);
       $('player').innerHTML = `<video controls src="${a.href}"></video>`;
+      lastOut = { blob, name: stem() + '.' + ext };
       if (picMode() === 'ai') await aiUpscale(blob, stem() + '.' + ext);
       addOut(wav, stem() + '.wav', 'Audio only (.wav)');
     } else {
@@ -943,8 +956,38 @@ async function makeVoice(fromStart) {
     finish(); log('Done.');
   } catch (e) { fail(e); }
   busy(false);
+  $('share').hidden = !lastOut;
 }
 $('voicebtn').onclick = makeVoice;
+
+// ---- smaller copy to send: on this PC's graphics card through the server, or in the browser ----
+$('share').addEventListener('click', async (e) => {
+  const h = +e.target.dataset.h; if (!h || !lastOut || running) return;
+  const name = lastOut.name.replace(/\.[^.]+$/, '') + `-${h}p.mp4`;
+  busy(true); $('err').hidden = true; plan(['share']); mark('share');
+  try {
+    if (serverOK) {
+      const r = await fetch(`/api/shrink?h=${h}` + (lastOut.job ? `&from=${lastOut.job}` : ''), {
+        method: 'POST', headers: { 'X-VD': '1', 'X-Name': encodeURIComponent(lastOut.name) }, body: lastOut.job ? null : lastOut.blob });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || 'Could not start.');
+      const s = await follow(j.id);
+      $('dl').insertAdjacentHTML('beforeend', `<a class="btn ghost" href="/api/job/${j.id}/file?dl=1" download>⬇ ${h}p copy, ${(s.size / 1e6).toFixed(0)} MB</a>`);
+    } else {
+      if (!lastOut.blob) throw new Error('Open the page with serve.cmd to make a copy of this video.');
+      const f = await getFF();
+      await f.writeFile('share-in.mp4', new Uint8Array(await lastOut.blob.arrayBuffer()));
+      await run(['-i', 'share-in.mp4', '-vf', `scale=-2:'min(${h},ih)':flags=lanczos,format=yuv420p`, '-c:v', 'libx264', '-preset', 'veryfast',
+        '-b:v', h === 1080 ? '2500k' : '1500k', '-maxrate', h === 1080 ? '3750k' : '2250k', '-bufsize', '6M', '-c:a', 'aac', '-b:a', '96k', '-movflags', '+faststart', 'share.mp4'], true);
+      const data = await f.readFile('share.mp4');
+      for (const x of ['share-in.mp4', 'share.mp4']) await f.deleteFile(x).catch(() => {});
+      const blob = new Blob([data.buffer], { type: 'video/mp4' });
+      addOut(blob, name, `${h}p copy, ${(blob.size / 1e6).toFixed(0)} MB`);
+    }
+    finish(); log('Smaller copy ready.');
+  } catch (err) { fail(err); }
+  busy(false);
+});
 
 async function pictureOnly() { // no dubbing: only improve the picture of the chosen video
   const mode = picMode();
@@ -960,12 +1003,15 @@ async function pictureOnly() { // no dubbing: only improve the picture of the ch
       mark('pic');
       await run(['-i', IN(), '-vf', lookOf().join(',') + ',format=yuv420p', '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '21', '-c:a', 'aac', '-b:a', '160k', 'out.mp4'], true);
       const data = await ff.readFile('out.mp4'); await ff.deleteFile('out.mp4');
-      const a = addOut(new Blob([data.buffer], { type: 'video/mp4' }), name + '-enhanced.mp4', 'Video', false);
+      const out = new Blob([data.buffer], { type: 'video/mp4' });
+      lastOut = { blob: out, name: name + '-enhanced.mp4' };
+      const a = addOut(out, name + '-enhanced.mp4', 'Video', false);
       $('player').innerHTML = `<video controls src="${a.href}"></video>`;
     }
     finish(); log('Done.');
   } catch (e) { fail(e); }
   busy(false);
+  $('share').hidden = !lastOut;
 }
 
 // ---- video ----

@@ -81,9 +81,9 @@ def status():
     return {'gpu': GPU, 'sizes': sizes if GPU and not blocker else [], 'setup': need, 'blocker': blocker}
 
 
-def start_job(path, to, model):
-    jid = os.path.basename(os.path.dirname(path))
-    job = {'state': 'running', 'text': 'Starting…', 'frac': 0, 'stop': False, 'out': None, 'name': None}
+def start_job(jid, task, name):
+    """Run task(log, stop) -> output path in a thread; the page follows it through /api/job/<id>."""
+    job = {'state': 'running', 'text': 'Starting...', 'frac': 0, 'stop': False, 'out': None, 'name': name}
     with LOCK:
         JOBS[jid] = job
 
@@ -94,8 +94,7 @@ def start_job(path, to, model):
 
     def work():
         try:
-            job['out'] = up.upscale(path, to, model, out=os.path.join(os.path.dirname(path), f'result-{to}.mp4'),
-                                    log=log, stop=lambda: job['stop'])
+            job['out'] = task(log, lambda: job['stop'])
             job['state'] = 'done'
         except up.Stopped:
             job['state'], job['text'] = 'stopped', 'Cancelled.'
@@ -158,7 +157,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 with open(j['out'], 'rb') as f:
                     shutil.copyfileobj(f, self.wfile, 1 << 20)
                 return
-            return self.send_json({k: j[k] for k in ('state', 'text', 'frac')})
+            info = {k: j[k] for k in ('state', 'text', 'frac')}
+            if j['state'] == 'done':
+                info['size'] = os.path.getsize(j['out'])
+            return self.send_json(info)
         self.send_error(404)
 
     def do_POST(self):
@@ -167,26 +169,38 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if p[:1] != ['api'] or not self.api_ok():
             return
         q = dict(urllib.parse.parse_qsl(u.query))
-        if p[1:2] == ['upscale']:
-            to, model = q.get('to', '4k'), q.get('model', 'photo')
-            if to not in status()['sizes'] or model not in up.MODELS:
-                return self.send_json({'error': 'This size is not available on this computer.'}, 400)
+        if p[1:2] in (['upscale'], ['shrink']):
             name = urllib.parse.unquote(self.headers.get('X-Name', 'video.mp4'))  # in a header, not the URL
+            stem = os.path.splitext(os.path.basename(name))[0]
+            if p[1] == 'upscale':
+                to, model = q.get('to', '4k'), q.get('model', 'photo')
+                if to not in status()['sizes'] or model not in up.MODELS:
+                    return self.send_json({'error': 'This size is not available on this computer.'}, 400)
+            else:
+                height = int(q.get('h', '1080')) if q.get('h', '1080').isdigit() else 0
+                if height not in up.SHARE_KBPS:
+                    return self.send_json({'error': 'Unknown size.'}, 400)
             jid = uuid.uuid4().hex[:12]
             d = os.path.join(JOBS_DIR, jid)
             os.makedirs(d)
-            ext = os.path.splitext(name)[1].lower() or '.mp4'
-            path = os.path.join(d, 'input' + (ext if ext.isascii() and len(ext) <= 5 else '.mp4'))
-            left = int(self.headers.get('Content-Length', 0))
-            with open(path, 'wb') as f:
-                while left > 0:
-                    chunk = self.rfile.read(min(left, 1 << 20))
-                    if not chunk:
-                        break
-                    f.write(chunk)
-                    left -= len(chunk)
-            start_job(path, to, model)
-            JOBS[jid]['name'] = os.path.splitext(os.path.basename(name))[0] + f'-{to}.mp4'
+            src = JOBS.get(q.get('from', ''), {}).get('out')  # shrink a result that is already here
+            if not src:
+                ext = os.path.splitext(name)[1].lower() or '.mp4'
+                src = os.path.join(d, 'input' + (ext if ext.isascii() and len(ext) <= 5 else '.mp4'))
+                left = int(self.headers.get('Content-Length', 0))
+                with open(src, 'wb') as f:
+                    while left > 0:
+                        chunk = self.rfile.read(min(left, 1 << 20))
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        left -= len(chunk)
+            if p[1] == 'upscale':
+                out = os.path.join(d, f'result-{to}.mp4')
+                start_job(jid, lambda log, stop: up.upscale(src, to, model, out=out, log=log, stop=stop), f'{stem}-{to}.mp4')
+            else:
+                out = os.path.join(d, f'result-{height}p.mp4')
+                start_job(jid, lambda log, stop: up.shrink(src, height, out=out, log=log, stop=stop), f'{stem}-{height}p.mp4')
             return self.send_json({'id': jid})
         if p[1:2] == ['job'] and p[3:4] == ['stop']:
             j = self.job(p)
