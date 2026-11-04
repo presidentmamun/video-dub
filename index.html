@@ -59,6 +59,13 @@ td.t{white-space:nowrap;color:var(--muted);width:1%;font-variant-numeric:tabular
 td.s{width:1%}td.s select{width:auto;padding:2px 4px;font-size:13px}
 td small{color:var(--muted);display:block;margin-bottom:4px}
 textarea{width:100%;min-height:2.6em;font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px}
+.pics{display:grid;gap:8px}
+.pic{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:10px;padding:10px 12px;cursor:pointer}
+.pic:has(input:checked){border-color:var(--accent);background:var(--soft)}
+.pic:has(input:disabled){opacity:.55;cursor:default}
+.pic input{margin-top:5px}
+.pic b{display:block}.pic small{display:block;color:var(--muted);font-size:14px}
+.row{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px}
 .log{white-space:pre-wrap;font-size:12px;color:var(--muted);max-height:200px;overflow:auto;margin:8px 0 0}
 footer{font-size:13px;color:var(--muted)}
 [hidden]{display:none!important}
@@ -107,19 +114,29 @@ footer{font-size:13px;color:var(--muted)}
                         <option value="onnx-community/whisper-base">Fast (good for English)</option>
             <option value="onnx-community/whisper-small">Accurate (better for non-English, needs a strong computer)</option>
           </select></label>
-        <label class="f">Picture
-          <select id="vd-enh">
-            <option value="none">Keep as it is (fastest)</option>
-            <option value="sharp">Sharper and more colourful (re-encodes, slower)</option>
-            <option value="2k">Sharper, and enlarge to 2K / 1440p (slowest)</option>
-          </select></label>
         <label class="check"><input type="checkbox" id="vd-burn"> Burn subtitles into the video (re-encodes, slower)</label>
         <label class="check"><input type="checkbox" id="vd-review"> Let me check the translation before making the voice</label>
       </div>
     </details>
   </section>
 
-  <button class="btn big" id="vd-start" disabled>Start dubbing</button>
+  <section class="card">
+    <h2>3 · Picture quality</h2>
+    <div class="pics">
+      <label class="pic"><input type="radio" name="pic" value="none" checked><span><b>Keep as it is</b><small>Fastest. The picture is not changed.</small></span></label>
+      <label class="pic"><input type="radio" name="pic" value="quick"><span><b>Quick enhance, in the browser</b><small>Sharper and more colourful, up to 2K. Works on any computer.</small></span></label>
+      <label class="pic"><input type="radio" name="pic" value="ai" id="vd-ai" disabled><span><b>AI upscale, with this computer's graphics card</b><small id="vd-aiinfo">Checking this computer…</small></span></label>
+    </div>
+    <div class="row" id="vd-quickopts" hidden>
+      <label class="f">Size<select id="vd-qsize"><option value="same">Same size, just sharper</option><option value="2k">Enlarge to 2K (1440p)</option></select></label>
+    </div>
+    <div class="row" id="vd-aiopts" hidden>
+      <label class="f">Size<select id="vd-aisize"></select></label>
+      <label class="f">Video type<select id="vd-aimodel"><option value="photo">Real camera video</option><option value="anime">Cartoon or anime (faster)</option></select></label>
+    </div>
+  </section>
+
+  <button class="btn big" id="vd-start" disabled>Start</button>
 
   <section class="card" id="vd-prog" hidden>
     <h2>Progress</h2>
@@ -147,7 +164,6 @@ footer{font-size:13px;color:var(--muted)}
 
   <footer>
     <details><summary>Details log</summary><pre class="log" id="vd-log"></pre></details>
-    <p>For AI upscaling to 4K or 8K, drag a finished video onto <b>upscale/upscale.cmd</b> (uses your NVIDIA graphics card).</p>
     <p>All AI models download automatically the first time (about 1.3 GB); after that they load from your browser. Open the page with <b>serve.cmd</b> so the models stay saved. The voice sounds synthetic and lips will not match. The translation and voice models (NLLB, MMS) are licensed for non-commercial use only.</p>
   </footer>
 </div>
@@ -413,15 +429,22 @@ const KOKORO_NAMES = { am_michael: 'Michael (man, US)', bm_george: 'George (man,
 const ASR_FAST = 'onnx-community/whisper-base', ASR_GOOD = 'onnx-community/whisper-small';
 const MAX_SPEED = 1.5, SR = 24000, SEP_WIN = 120, SEP_MARGIN = 1, SPK_TH = 0.6, MALE_F0 = 165;
 const BG_VOL = { none: 0, orig: 15, ai: 100, fast: 100 };
-const STEPS = { audio: 'Read the audio', sep: 'Separate voices from music', asr: 'Recognize speech', spk: 'Find the speakers', mt: 'Translate', tts: 'Make the new voices', mix: 'Mix the audio', video: 'Build the video' };
+const STEPS = { audio: 'Read the audio', sep: 'Separate voices from music', asr: 'Recognize speech', spk: 'Find the speakers', mt: 'Translate', tts: 'Make the new voices', mix: 'Mix the audio', video: 'Build the video', pic: 'Improve the picture', up: 'AI upscale with the graphics card' };
 
 // ---- form ----
 const names = Object.entries(LANGS).sort((a, b) => a[1][0].localeCompare(b[1][0]));
 $('src').innerHTML = '<option value="auto">Detect automatically</option>' + names.map(([k, v]) => `<option value="${k}">${v[0]}</option>`).join('');
-$('tgt').innerHTML = names.map(([k, v]) => `<option value="${k}">${v[0]}${v[3] ? '' : ' — subtitles only'}</option>`).join('');
+$('tgt').innerHTML = '<option value="keep">Keep the original language (only improve the picture)</option>' + names.map(([k, v]) => `<option value="${k}">${v[0]}${v[3] ? '' : ' — subtitles only'}</option>`).join('');
 $('tgt').value = 'bn';
 function langUI() {
   const t = $('tgt').value, L = LANGS[t];
+  if (t === 'keep') {
+    $('voice').innerHTML = '<option value="">Not needed</option>';
+    $('hint').className = 'hint'; $('hint').textContent = 'The sound stays the same. Choose how to improve the picture below.';
+    $('start').textContent = 'Improve the picture';
+    return;
+  }
+  $('start').textContent = 'Start dubbing';
   $('voice').innerHTML = !L[3] ? '<option value="">No voice yet for this language</option>'
     : '<option value="auto">Automatic: a matching voice for each speaker</option>'
       + (t === 'en' ? Object.entries(KOKORO_NAMES).map(([k, v]) => `<option value="${k}">Everyone: ${v}</option>`).join('') : '')
@@ -448,6 +471,48 @@ function mark(k) { // k runs; everything before it is done
   bar(0); stat(''); log(STEPS[k]);
 }
 const finish = () => { for (const li of $('steps').children) li.className = 'done'; bar(1); stat(''); };
+
+// ---- picture ----
+const picMode = () => document.querySelector('input[name=pic]:checked').value;
+const lookOf = () => (picMode() !== 'quick' ? [] // lanczos enlarge (only when smaller), contrast-adaptive sharpen, a little more colour
+  : [...($('qsize').value === '2k' && info.h && info.h < 1440 ? ['scale=-2:1440:flags=lanczos'] : []), 'cas=0.6', 'eq=contrast=1.05:saturation=1.12']);
+document.querySelectorAll('input[name=pic]').forEach((r) => (r.onchange = () => {
+  $('quickopts').hidden = picMode() !== 'quick'; $('aiopts').hidden = picMode() !== 'ai';
+}));
+let aiJob = null;
+(async () => { // ask the local server (serve.cmd) whether this PC has a usable graphics card
+  const info = $('aiinfo');
+  if (!location.protocol.startsWith('http')) { info.textContent = 'Not available here: open the page with serve.cmd to use this computer\'s graphics card.'; return; }
+  try {
+    const s = await (await fetch('/api/status', { headers: { 'X-VD': '1' } })).json();
+    if (!s.gpu) { info.textContent = 'Not available: no NVIDIA or AMD graphics card was found on this computer.'; return; }
+    $('aisize').innerHTML = s.sizes.map((z) => `<option value="${z}"${z === '4k' ? ' selected' : ''}>${z.toUpperCase()} (${{ '2k': '1440p', '4k': '2160p', '8k': '4320p' }[z]})</option>`).join('');
+    info.textContent = `${s.gpu.name}${s.gpu.vram_gb ? ` · ${s.gpu.vram_gb} GB` : ''} · up to ${s.sizes[s.sizes.length - 1].toUpperCase()}. Slow: long videos can take hours.`
+      + (s.setup.length ? ` The first time it sets up ${s.setup.join(' and ')} by itself.` : '');
+    $('ai').disabled = false;
+  } catch { info.textContent = 'Not available here: open the page with serve.cmd to use this computer\'s graphics card.'; }
+})();
+async function aiUpscale(blob, name) { // send the video to the local server and follow its progress
+  mark('up'); stat('Sending the video to the upscaler…');
+  const r = await fetch(`/api/upscale?to=${$('aisize').value}&model=${$('aimodel').value}`, {
+    method: 'POST', headers: { 'X-VD': '1', 'X-Name': encodeURIComponent(name) }, body: blob });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || 'The upscaler did not start.');
+  aiJob = j.id;
+  try {
+    for (;;) {
+      await new Promise((ok) => setTimeout(ok, 1500));
+      const s = await (await fetch('/api/job/' + j.id, { headers: { 'X-VD': '1' } })).json();
+      if (s.frac != null) bar(s.frac);
+      stat(s.text);
+      if (s.state === 'done') break;
+      if (s.state !== 'running') throw Object.assign(new Error(s.text), { cancel: s.state === 'stopped' });
+    }
+  } finally { aiJob = null; }
+  const u = '/api/job/' + j.id + '/file';
+  $('player').innerHTML = `<video controls src="${u}"></video>`;
+  $('dl').insertAdjacentHTML('afterbegin', `<a class="btn" href="${u}?dl=1" download>⬇ Video, ${$('aisize').value.toUpperCase()}</a>`);
+}
 
 // ---- workers ----
 const workers = {}, waiting = {}, stepT = {};
@@ -623,7 +688,7 @@ function busy(b) {
   $('voicebtn').disabled = b || !segs.length || !$('voice').value;
   $('file').disabled = b; $('stop').hidden = !b;
 }
-$('stop').onclick = () => { stop(null, 'Cancelled.'); };
+$('stop').onclick = () => { if (aiJob) fetch('/api/job/' + aiJob + '/stop', { method: 'POST', headers: { 'X-VD': '1' } }); stop(null, 'Cancelled.'); };
 function fail(e) {
   console.error(e);
   $('err').textContent = e.cancel ? 'Cancelled.' : 'Something went wrong: ' + e.message;
@@ -769,6 +834,7 @@ async function background() {
 
 // ---- main flow ----
 $('start').onclick = async () => {
+  if ($('tgt').value === 'keep') return pictureOnly();
   const src = $('src').value, tgt = $('tgt').value, sep = $('bg').value === 'ai';
   if (src === tgt) { $('err').textContent = 'The two languages are the same. Choose a different language to change to.'; $('err').hidden = false; $('prog').hidden = false; return; }
   const direct = tgt === 'en' && src !== 'en'; // into English, Whisper translates by itself
@@ -777,7 +843,7 @@ $('start').onclick = async () => {
   busy(true); resetOut(); segs = []; speakers = []; bgCache = null;
   for (const k in stepT) delete stepT[k];
   $('err').hidden = true; $('prog').hidden = false; $('res').hidden = true; $('edit').hidden = true;
-  plan(['audio', ...(sep && hasVoice ? ['sep'] : []), 'asr', 'spk', ...(direct ? [] : ['mt']), ...(hasVoice ? ['tts', 'mix'] : []), ...(hasVoice && (info.w || file.type.startsWith('video/')) ? ['video'] : [])]);
+  plan(['audio', ...(sep && hasVoice ? ['sep'] : []), 'asr', 'spk', ...(direct ? [] : ['mt']), ...(hasVoice ? ['tts', 'mix'] : []), ...(hasVoice && (info.w || file.type.startsWith('video/')) ? ['video', ...(picMode() === 'ai' ? ['up'] : [])] : [])]);
   try {
     mark('audio');
     let a16 = await pcm(['-ac', '1', '-ar', '16000']);
@@ -829,7 +895,7 @@ async function makeVoice(fromStart) {
   busy(true); resetOut(); refreshSrt(); $('err').hidden = true; $('res').hidden = false; $('prog').hidden = false;
   for (const k in stepT) delete stepT[k];
   const isVideo = info.w > 0 || file.type.startsWith('video/');
-  if (fromStart !== true) plan(['tts', 'mix', ...(isVideo ? ['video'] : [])]);
+  if (fromStart !== true) plan(['tts', 'mix', ...(isVideo ? ['video', ...(picMode() === 'ai' ? ['up'] : [])] : [])]);
   try {
     const L = LANGS[$('tgt').value], texts = segs.map((s) => s.tr), kv = pickVoices();
     mark('tts');
@@ -863,9 +929,10 @@ async function makeVoice(fromStart) {
     if (isVideo) {
       mark('video');
       const [blob, ext] = await buildVideo(wav);
-      const a = addOut(blob, stem() + '.' + ext, 'Video', false);
+      const a = addOut(blob, stem() + '.' + ext, picMode() === 'ai' ? 'Video, original size' : 'Video', picMode() === 'ai');
       $('dl').prepend(a);
       $('player').innerHTML = `<video controls src="${a.href}"></video>`;
+      if (picMode() === 'ai') await aiUpscale(blob, stem() + '.' + ext);
       addOut(wav, stem() + '.wav', 'Audio only (.wav)');
     } else {
       const a = addOut(wav, stem() + '.wav', 'Audio (.wav)', false);
@@ -876,6 +943,28 @@ async function makeVoice(fromStart) {
   busy(false);
 }
 $('voicebtn').onclick = makeVoice;
+
+async function pictureOnly() { // no dubbing: only improve the picture of the chosen video
+  const mode = picMode();
+  $('err').hidden = true; $('prog').hidden = false; $('edit').hidden = true;
+  if (mode === 'none') { $('err').textContent = 'Choose "Quick enhance" or "AI upscale" under Picture quality.'; $('err').hidden = false; return; }
+  if (!info.w) { $('err').textContent = 'This file has no picture to improve.'; $('err').hidden = false; return; }
+  busy(true); resetOut(); $('res').hidden = false;
+  const name = file.name.replace(/\.[^.]+$/, '');
+  plan([mode === 'ai' ? 'up' : 'pic']);
+  try {
+    if (mode === 'ai') await aiUpscale(file, file.name);
+    else {
+      mark('pic');
+      await run(['-i', IN(), '-vf', lookOf().join(',') + ',format=yuv420p', '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '21', '-c:a', 'aac', '-b:a', '160k', 'out.mp4'], true);
+      const data = await ff.readFile('out.mp4'); await ff.deleteFile('out.mp4');
+      const a = addOut(new Blob([data.buffer], { type: 'video/mp4' }), name + '-enhanced.mp4', 'Video', false);
+      $('player').innerHTML = `<video controls src="${a.href}"></video>`;
+    }
+    finish(); log('Done.');
+  } catch (e) { fail(e); }
+  busy(false);
+}
 
 // ---- video ----
 function wrap(g, text, max) {
@@ -914,8 +1003,7 @@ async function buildVideo(wav) {
   const burn = $('burn').checked && info.w > 0;
   if ($('burn').checked && !burn) note('The video size could not be read, so subtitles were not burned in.');
   const ext = (file.name.match(/\.([^.]+)$/) || [, 'mp4'])[1].toLowerCase();
-  // Picture: lanczos enlarge (only when smaller than 1440p), contrast-adaptive sharpen, a little more colour
-  const enh = $('enh').value, look = enh === 'none' ? [] : [...(enh === '2k' && info.h && info.h < 1440 ? ['scale=-2:1440:flags=lanczos'] : []), 'cas=0.6', 'eq=contrast=1.05:saturation=1.12'];
+  const look = lookOf();
   const outExt = burn || look.length || ['mp4', 'mov', 'm4v'].includes(ext) ? 'mp4' : 'mkv';
   let n = 0;
   if (burn || look.length) {

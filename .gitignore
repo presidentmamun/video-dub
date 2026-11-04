@@ -3,3 +3,7 @@ _test*
 upscale/realesrgan/
 upscale/realesrgan.zip
 *-work/
+upscale/jobs/
+upscale/ffmpeg/
+upscale/ffmpeg.zip
+__pycache__/

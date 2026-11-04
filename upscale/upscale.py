@@ -3,6 +3,7 @@
   upscale.cmd                        drag a video onto it, it asks for the size
   python upscale.py VIDEO --to 4k    2k | 4k | 8k   [--model photo|anime] [--check]
 
+Also used by ../server.py when the web page picks "AI upscale".
 Needs ffmpeg + ffprobe (C:\\ffmpeg\\bin or on PATH). The first run downloads
 realesrgan-ncnn-vulkan (45 MB, github.com/xinntao/Real-ESRGAN) into this folder.
 The video is done in small chunks, so the disk only ever holds a few hundred frames,
@@ -16,68 +17,98 @@ TOOL_DIR = os.path.join(HERE, 'realesrgan')
 TARGETS = {'2k': 1440, '4k': 2160, '8k': 4320}
 MODELS = {'photo': 'realesrgan-x4plus', 'anime': 'realesr-animevideov3'}
 CHUNK = {1440: 300, 2160: 150, 4320: 50}  # frames per chunk: keeps temporary PNGs to a few GB
+NOWIN = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+
+
+class Stopped(Exception):
+    pass
+
+
+FF_URL = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip'
+FF_DIR = os.path.join(HERE, 'ffmpeg')
 
 
 def find(name):
+    for root, _, files in os.walk(FF_DIR):  # our own copy, set up on first use
+        if name + '.exe' in files:
+            return os.path.join(root, name + '.exe')
     for p in (os.path.join(r'C:\ffmpeg\bin', name + '.exe'), shutil.which(name)):
         if p and os.path.exists(p):
             return p
-    sys.exit(f'{name} was not found. Install ffmpeg into C:\\ffmpeg\\bin or add it to PATH.')
+    return None
 
 
 FFMPEG, FFPROBE = find('ffmpeg'), find('ffprobe')
 
 
-def run(cmd, quiet=True):
-    r = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
+def download(url, dest_dir, label, log):
+    """Download a zip with progress and unpack it into dest_dir."""
+    z = dest_dir + '.zip'
+    def hook(n, size, total):
+        if total > 0 and n % 50 == 0:
+            log(f'Setting up {label}: {min(n * size, total) / 1e6:.0f} of {total / 1e6:.0f} MB', min(1, n * size / total))
+    urllib.request.urlretrieve(url, z, hook)
+    with zipfile.ZipFile(z) as f:
+        f.extractall(dest_dir)
+    os.remove(z)
+
+
+def ensure_ffmpeg(log=print):
+    global FFMPEG, FFPROBE
+    if not (FFMPEG and FFPROBE):
+        download(FF_URL, FF_DIR, 'ffmpeg (200 MB, one time)', log)
+        FFMPEG, FFPROBE = find('ffmpeg'), find('ffprobe')
+        if not (FFMPEG and FFPROBE):
+            raise RuntimeError('The ffmpeg download did not contain ffmpeg.exe.')
+    return FFMPEG
+
+
+def run(cmd, cwd=None):
+    r = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', cwd=cwd, creationflags=NOWIN)
     if r.returncode != 0:
         raise RuntimeError(f'{os.path.basename(cmd[0])} failed:\n' + (r.stderr or r.stdout)[-1500:])
     return r
 
 
-def tool():
-    def exe():
-        for root, _, files in os.walk(TOOL_DIR):
-            if 'realesrgan-ncnn-vulkan.exe' in files:
-                return os.path.join(root, 'realesrgan-ncnn-vulkan.exe')
-    if exe():
-        return exe()
-    print('Downloading Real-ESRGAN (45 MB, one time only)...')
-    z = os.path.join(HERE, 'realesrgan.zip')
-    urllib.request.urlretrieve(TOOL_URL, z)
-    with zipfile.ZipFile(z) as f:
-        f.extractall(TOOL_DIR)
-    os.remove(z)
-    if not exe():
-        sys.exit('The Real-ESRGAN download did not contain realesrgan-ncnn-vulkan.exe.')
-    return exe()
+def tool_path():
+    for root, _, files in os.walk(TOOL_DIR):
+        if 'realesrgan-ncnn-vulkan.exe' in files:
+            return os.path.join(root, 'realesrgan-ncnn-vulkan.exe')
+    return None
+
+
+def tool(log=print):
+    if tool_path():
+        return tool_path()
+    download(TOOL_URL, TOOL_DIR, 'Real-ESRGAN (45 MB, one time)', log)
+    if not tool_path():
+        raise RuntimeError('The Real-ESRGAN download did not contain realesrgan-ncnn-vulkan.exe.')
+    return tool_path()
 
 
 def pick_gpu(exe, work):
     """Real-ESRGAN lists the graphics cards it sees; prefer NVIDIA/AMD over the built-in Intel chip."""
     tiny, out = os.path.join(work, 'gpu-in.png'), os.path.join(work, 'gpu-out.png')
     run([FFMPEG, '-y', '-v', 'error', '-f', 'lavfi', '-i', 'color=c=gray:s=16x16', '-frames:v', '1', tiny])
-    r = subprocess.run([exe, '-i', tiny, '-o', out, '-n', 'realesr-animevideov3', '-s', '2'],
-                       capture_output=True, text=True, encoding='utf-8', errors='replace', cwd=os.path.dirname(exe))
-    gpus = []
+    r = subprocess.run([exe, '-i', tiny, '-o', out, '-n', 'realesr-animevideov3', '-s', '2'], capture_output=True,
+                       text=True, encoding='utf-8', errors='replace', cwd=os.path.dirname(exe), creationflags=NOWIN)
+    gpus = {}
     for line in (r.stderr + r.stdout).splitlines():
-        if line.startswith('[') and ' ' in line and line[1:line.index(' ')].isdigit():
-            gpus.append((int(line[1:line.index(' ')]), line[line.index(' ') + 1:line.index(']')]))
+        if line.startswith('[') and ' ' in line and line[1:line.index(' ')].isdigit() and ']' in line:
+            gpus.setdefault(int(line[1:line.index(' ')]), line[line.index(' ') + 1:line.index(']')])
     for f in (tiny, out):
         if os.path.exists(f):
             os.remove(f)
-    gpus = list(dict(gpus).items())
-    for want in ('NVIDIA', 'AMD', 'Radeon'):
-        for i, name in gpus:
-            if want.lower() in name.lower():
+    for want in ('nvidia', 'amd', 'radeon'):
+        for i, name in gpus.items():
+            if want in name.lower():
                 return i, name
-    return (gpus[0] if gpus else (0, 'default'))
+    return next(iter(gpus.items()), (0, 'default'))
 
 
 def probe(src):
-    r = run([FFPROBE, '-v', 'error', '-select_streams', 'v:0', '-show_entries',
-             'stream=width,height,r_frame_rate:format=duration', '-of', 'json', src])
-    j = json.loads(r.stdout)
+    j = json.loads(run([FFPROBE, '-v', 'error', '-select_streams', 'v:0', '-show_entries',
+                        'stream=width,height,r_frame_rate:format=duration', '-of', 'json', src]).stdout)
     s = j['streams'][0]
     num, den = (s['r_frame_rate'].split('/') + ['1'])[:2]
     has_audio = bool(json.loads(run([FFPROBE, '-v', 'error', '-select_streams', 'a', '-show_entries', 'stream=index',
@@ -85,10 +116,10 @@ def probe(src):
     return int(s['width']), int(s['height']), s['r_frame_rate'], float(num) / float(den), float(j['format']['duration']), has_audio
 
 
-def encoder(height):
+def encoder():
     """hevc_nvenc handles up to 8K on RTX cards; fall back to the CPU encoder when NVENC is missing."""
     try:
-        run([FFMPEG, '-v', 'error', '-f', 'lavfi', '-i', f'color=s=256x{256}', '-frames:v', '1', '-c:v', 'hevc_nvenc', '-f', 'null', '-'])
+        run([FFMPEG, '-v', 'error', '-f', 'lavfi', '-i', 'color=s=256x256', '-frames:v', '1', '-c:v', 'hevc_nvenc', '-f', 'null', '-'])
         return ['-c:v', 'hevc_nvenc', '-preset', 'p5', '-rc', 'vbr', '-cq', '20', '-b:v', '0', '-tag:v', 'hvc1'], 'NVIDIA NVENC'
     except RuntimeError:
         return ['-c:v', 'libx265', '-preset', 'medium', '-crf', '20', '-tag:v', 'hvc1'], 'CPU (libx265, slow)'
@@ -99,43 +130,41 @@ def fmt(sec):
     return f'{sec // 3600}h {sec // 60 % 60:02d}m' if sec >= 3600 else f'{sec // 60}m {sec % 60:02d}s'
 
 
-def main():
-    ap = argparse.ArgumentParser(description='Upscale a video with Real-ESRGAN.')
-    ap.add_argument('video')
-    ap.add_argument('--to', choices=TARGETS, default='4k')
-    ap.add_argument('--model', choices=MODELS, default='photo', help='photo = real camera video, anime = cartoons (faster)')
-    ap.add_argument('--check', action='store_true', help='only show what would happen')
-    a = ap.parse_args()
+def plain_log(text, frac=None):
+    print(text, flush=True)
 
-    src = os.path.abspath(a.video)
-    if not os.path.exists(src):
-        sys.exit('File not found: ' + src)
+
+def upscale(src, to='4k', model='photo', out=None, log=plain_log, stop=lambda: False, check=False):
+    """Upscale src to 2k/4k/8k. log(text, fraction 0..1 or None). stop() returning True cancels. Returns the output path."""
+    ensure_ffmpeg(log)
+    src = os.path.abspath(src)
     w, h, rate, fps, dur, has_audio = probe(src)
-    H = TARGETS[a.to]
+    H = TARGETS[to]
     if H <= h:
-        sys.exit(f'The video is already {h}p, which is not smaller than {a.to.upper()} ({H}p).')
-    model = MODELS[a.model]
-    scale = 4 if model == 'realesrgan-x4plus' else min(4, max(2, -(-H // h)))  # x4plus only works at 4x
+        raise RuntimeError(f'The video is already {h}p, which is not smaller than {to.upper()} ({H}p).')
+    name = MODELS[model]
+    scale = 4 if name == 'realesrgan-x4plus' else min(4, max(2, -(-H // h)))  # x4plus only works at 4x
     total = max(1, round(dur * fps))
     base = os.path.splitext(src)[0]
-    out = f'{base}-{a.to}.mp4'
-    work = f'{base}-{a.to}-work'
-    enc, enc_name = encoder(H)
-    print(f'{os.path.basename(src)}: {w}x{h}, {fps:.2f} fps, {fmt(dur)}, about {total} frames')
-    print(f'Plan: Real-ESRGAN {model} x{scale}, then resize to {H}p, encode with {enc_name}')
-    print(f'Output: {out}')
-    if a.check:
-        return
+    out = out or f'{base}-{to}.mp4'
+    work = f'{base}-{to}-work'
+    enc, enc_name = encoder()
+    log(f'{os.path.basename(src)}: {w}x{h}, {fps:.2f} fps, {fmt(dur)}, about {total} frames', None)
+    log(f'Plan: Real-ESRGAN {name} x{scale}, resize to {H}p, encode with {enc_name}', None)
+    if check:
+        return out
 
-    exe = tool()
+    exe = tool(log)
     os.makedirs(work, exist_ok=True)
     gpu, gpu_name = pick_gpu(exe, work)
-    print(f'Graphics card: {gpu_name}')
+    log(f'Graphics card: {gpu_name}', None)
     step = CHUNK[H]
     secs = step / fps
     n_chunks = int(-(-dur // secs))
-    parts, t0, done_frames = [], time.time(), 0
+    parts, t0, done = [], time.time(), 0
     for k in range(n_chunks):
+        if stop():
+            raise Stopped()
         part = os.path.join(work, f'part{k:05d}.mp4')
         parts.append(part)
         if os.path.exists(part):  # finished in an earlier run
@@ -151,17 +180,16 @@ def main():
         if n == 0:
             parts.pop()
             break
-        run([exe, '-i', fin, '-o', fout, '-n', model, '-s', str(scale), '-g', str(gpu), '-f', 'png'])
+        run([exe, '-i', fin, '-o', fout, '-n', name, '-s', str(scale), '-g', str(gpu), '-f', 'png'], cwd=os.path.dirname(exe))
         tmp = part + '.tmp.mp4'
         run([FFMPEG, '-v', 'error', '-y', '-framerate', rate, '-i', os.path.join(fout, '%08d.png'),
              '-vf', f'scale=-2:{H}:flags=lanczos,format=yuv420p', *enc, tmp])
         os.replace(tmp, part)
-        done_frames += n
-        el = time.time() - t0
-        left = el / done_frames * max(0, total - (k + 1) * step)
-        print(f'  chunk {k + 1}/{n_chunks} done · {min(total, (k + 1) * step)}/{total} frames · about {fmt(left)} left', flush=True)
+        done += n
+        left = (time.time() - t0) / done * max(0, total - (k + 1) * step)
+        log(f'Upscaling: {min(total, (k + 1) * step)} of {total} frames · about {fmt(left)} left', (k + 1) / n_chunks)
 
-    print('Joining chunks and adding the sound...')
+    log('Joining the pieces and adding the sound…', None)
     lst = os.path.join(work, 'list.txt')
     with open(lst, 'w', encoding='utf-8') as f:
         f.writelines(f"file '{p.replace(chr(92), '/')}'\n" for p in parts)
@@ -177,7 +205,20 @@ def main():
         cmd[cmd.index('-c:a') + 1] = 'aac'
         run(cmd)
     shutil.rmtree(work, ignore_errors=True)
-    print(f'Done in {fmt(time.time() - t0)}: {out}')
+    log(f'Done in {fmt(time.time() - t0)}: {out}', 1)
+    return out
+
+
+def main():
+    ap = argparse.ArgumentParser(description='Upscale a video with Real-ESRGAN.')
+    ap.add_argument('video')
+    ap.add_argument('--to', choices=TARGETS, default='4k')
+    ap.add_argument('--model', choices=MODELS, default='photo', help='photo = real camera video, anime = cartoons (faster)')
+    ap.add_argument('--check', action='store_true', help='only show what would happen')
+    a = ap.parse_args()
+    if not os.path.exists(a.video):
+        sys.exit('File not found: ' + a.video)
+    upscale(a.video, a.to, a.model, check=a.check)
 
 
 if __name__ == '__main__':
