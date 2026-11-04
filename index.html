@@ -1,0 +1,910 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Video Dubbing</title>
+<style>
+/* One centered column of cards: choose → languages → start → progress → results */
+:root{--bg:#f6f7f9;--card:#fff;--fg:#1d2330;--muted:#5d6676;--line:#dde1e8;--accent:#1f6feb;--accent-fg:#fff;--ok:#1a7f37;--warn:#9a6700;--bad:#b42318;--soft:#eef3fd;color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1218;--card:#171b23;--fg:#e6e9ef;--muted:#9aa3b2;--line:#2a303c;--accent:#4c8dff;--accent-fg:#0b0e13;--ok:#3fb950;--warn:#d29922;--bad:#f0645c;--soft:#1a2436;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0f1218;--card:#171b23;--fg:#e6e9ef;--muted:#9aa3b2;--line:#2a303c;--accent:#4c8dff;--accent-fg:#0b0e13;--ok:#3fb950;--warn:#d29922;--bad:#f0645c;--soft:#1a2436;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,"Segoe UI","Noto Sans Bengali","Nirmala UI",sans-serif;padding-block:24px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.wrap{max-width:720px;margin:0 auto;display:grid;gap:16px}
+header h1{margin:0;font-size:28px;letter-spacing:-.01em;text-wrap:balance}
+header p{margin:4px 0 0;color:var(--muted)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;display:grid;gap:12px;min-width:0}
+.card h2{margin:0;font-size:15px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.drop{display:grid;place-items:center;text-align:center;gap:4px;border:2px dashed var(--line);border-radius:10px;padding:28px 12px;cursor:pointer}
+.drop:hover,.drop.on{border-color:var(--accent);background:var(--soft)}
+.drop b{font-size:18px}.drop small{color:var(--muted)}
+.drop input{position:absolute;opacity:0;width:1px;height:1px}
+.langs{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:end}
+.langs .arrow{padding-bottom:10px;color:var(--muted)}
+label.f{display:grid;gap:4px;font-size:14px;color:var(--muted);min-width:0}
+select,input[type=range]{width:100%}
+select{font:inherit;color:var(--fg);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px}
+.hint{font-size:14px;margin:0}.hint.ok{color:var(--ok)}.hint.warn{color:var(--warn)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;font:inherit;font-weight:600;border:0;border-radius:10px;padding:12px 18px;background:var(--accent);color:var(--accent-fg);cursor:pointer;text-decoration:none}
+.btn.big{width:100%;font-size:18px;padding:14px}
+.btn.ghost{background:transparent;color:var(--fg);border:1px solid var(--line)}
+.btn.stop{background:transparent;color:var(--bad);border:1px solid var(--bad)}
+.btn:disabled{opacity:.45;cursor:default}
+.btn:focus-visible,select:focus-visible,.drop:focus-within{outline:2px solid var(--accent);outline-offset:2px}
+details{border-top:1px solid var(--line);padding-top:8px}
+summary{cursor:pointer;font-weight:600}
+.opts{display:grid;gap:12px;margin-top:12px}
+.check{display:flex;gap:8px;align-items:flex-start;font-size:15px}
+.check input{margin-top:4px}
+ol.steps{list-style:none;margin:0;padding:0;display:grid;gap:4px}
+ol.steps li{display:flex;gap:8px;color:var(--muted)}
+ol.steps li::before{content:"○";width:1.2em;text-align:center}
+ol.steps li.run{color:var(--fg);font-weight:600}ol.steps li.run::before{content:"◐";color:var(--accent)}
+ol.steps li.done{color:var(--fg)}ol.steps li.done::before{content:"✓";color:var(--ok)}
+.bar{height:8px;background:var(--line);border-radius:4px;overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:var(--accent);transition:width .2s}
+.stat{font-size:14px;color:var(--muted);min-height:1.4em;font-variant-numeric:tabular-nums}
+.err{background:color-mix(in srgb,var(--bad) 12%,transparent);color:var(--bad);border-radius:8px;padding:10px;margin:0}
+.notes{margin:0;padding-left:20px;font-size:14px;color:var(--warn)}
+.downloads{display:flex;flex-wrap:wrap;gap:8px}
+video{width:100%;border-radius:8px;background:#000}
+.spk{display:flex;flex-wrap:wrap;gap:8px}
+.spk label{display:flex;gap:6px;align-items:center;font-size:14px;border:1px solid var(--line);border-radius:999px;padding:2px 4px 2px 10px}
+.spk select{width:auto;padding:2px 6px;font-size:14px}
+.tw{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:14px}
+td{border-top:1px solid var(--line);padding:6px 4px;vertical-align:top}
+td.t{white-space:nowrap;color:var(--muted);width:1%;font-variant-numeric:tabular-nums}
+td.s{width:1%}td.s select{width:auto;padding:2px 4px;font-size:13px}
+td small{color:var(--muted);display:block;margin-bottom:4px}
+textarea{width:100%;min-height:2.6em;font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px}
+.log{white-space:pre-wrap;font-size:12px;color:var(--muted);max-height:200px;overflow:auto;margin:8px 0 0}
+footer{font-size:13px;color:var(--muted)}
+[hidden]{display:none!important}
+@media (max-width:480px){.langs{grid-template-columns:1fr}.langs .arrow{display:none}}
+@media (prefers-reduced-motion:reduce){.bar i{transition:none}}
+</style>
+</head>
+<body>
+<div class="wrap" id="vd">
+  <header>
+    <h1>Video Dubbing</h1>
+    <p>Translate the speech in a video into another language and give it a new voice. Everything runs on your device. Nothing is uploaded.</p>
+  </header>
+
+  <section class="card">
+    <h2>1 · Choose a video</h2>
+    <label class="drop" id="vd-drop">
+      <input type="file" id="vd-file" accept="video/*,audio/*">
+      <b id="vd-fname">Drop a video here, or click to choose</b>
+      <small id="vd-finfo">MP4, MOV, WebM, MKV or an audio file · 10 minutes or less works best</small>
+    </label>
+  </section>
+
+  <section class="card">
+    <h2>2 · Languages</h2>
+    <div class="langs">
+      <label class="f">Spoken in<select id="vd-src"></select></label>
+      <span class="arrow">→</span>
+      <label class="f">Change to<select id="vd-tgt"></select></label>
+    </div>
+    <p class="hint" id="vd-hint"></p>
+    <details>
+      <summary>More options</summary>
+      <div class="opts">
+        <label class="f">Voice<select id="vd-voice"></select></label>
+        <label class="f">Background sound
+          <select id="vd-bg">
+            <option value="ai">Keep music and sounds, remove the original voices (best, slower)</option>
+            <option value="orig">Keep the original audio, quieter</option>
+            <option value="fast">Keep music, remove voices (quick, stereo only)</option>
+            <option value="none">Nothing, only the new voice</option>
+          </select></label>
+        <label class="f" id="vd-volw">Background volume: <span id="vd-volv"></span><input type="range" id="vd-vol" min="0" max="100"></label>
+        <label class="f">Speech recognition
+          <select id="vd-asr">
+                        <option value="onnx-community/whisper-base">Fast (good for English)</option>
+            <option value="onnx-community/whisper-small">Accurate (better for non-English, needs a strong computer)</option>
+          </select></label>
+        <label class="check"><input type="checkbox" id="vd-burn"> Burn subtitles into the video (re-encodes, slower)</label>
+        <label class="check"><input type="checkbox" id="vd-review"> Let me check the translation before making the voice</label>
+      </div>
+    </details>
+  </section>
+
+  <button class="btn big" id="vd-start" disabled>Start dubbing</button>
+
+  <section class="card" id="vd-prog" hidden>
+    <h2>Progress</h2>
+    <ol class="steps" id="vd-steps"></ol>
+    <div class="bar"><i id="vd-bar"></i></div>
+    <div class="stat" id="vd-stat"></div>
+    <p class="err" id="vd-err" hidden></p>
+    <div><button class="btn stop" id="vd-stop" hidden>Cancel</button></div>
+  </section>
+
+  <section class="card" id="vd-res" hidden>
+    <h2>Result</h2>
+    <div id="vd-player"></div>
+    <div class="downloads" id="vd-dl"></div>
+    <ul class="notes" id="vd-notes"></ul>
+  </section>
+
+  <section class="card" id="vd-edit" hidden>
+    <h2>Speakers and translation</h2>
+    <p class="hint">Fix any line or speaker below, then make the voice again.</p>
+    <div class="spk" id="vd-spk"></div>
+    <div class="tw"><table id="vd-tab"></table></div>
+    <div><button class="btn" id="vd-voicebtn">Make the voice</button></div>
+  </section>
+
+  <footer>
+    <details><summary>Details log</summary><pre class="log" id="vd-log"></pre></details>
+    <p>All AI models download automatically the first time (about 1.3 GB); after that they load from your browser. Open the page with <b>serve.cmd</b> so the models stay saved. The voice sounds synthetic and lips will not match. The translation and voice models (NLLB, MMS) are licensed for non-commercial use only.</p>
+  </footer>
+</div>
+
+<script type="text/worker" id="vd-worker">
+// Three workers share this code: main (Whisper, NLLB, MMS, speaker model), kokoro, sep (voice/music split).
+// Each library lives in its own worker so two copies of onnxruntime never mix.
+const TF_URL = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1';
+const KOKORO_URL = 'https://cdn.jsdelivr.net/npm/kokoro-js@1.2.1/dist/kokoro.web.js';
+const ORT = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/';
+const SEP_URL = 'https://huggingface.co/masszhou/mdxnet/resolve/main/UVR-MDX-NET-Inst_HQ_3.onnx';
+
+let cacheOK = null;
+async function canCache() {
+  if (cacheOK === null) {
+    try { await caches.open('vd-test'); cacheOK = true; }
+    catch { cacheOK = false; postMessage({ type: 'msg', text: 'Opened from file:// so models are not saved. Use serve.cmd to keep them.' }); }
+  }
+  return cacheOK;
+}
+let tf;
+async function TF() {
+  if (!tf) {
+    tf = await import(TF_URL);
+    tf.env.allowLocalModels = false;
+    if (!(await canCache())) tf.env.useBrowserCache = false;
+  }
+  return tf;
+}
+let gpu = null;
+async function hasGPU() {
+  if (gpu === null) { try { gpu = !!(navigator.gpu && await navigator.gpu.requestAdapter()); } catch { gpu = false; } }
+  return gpu;
+}
+const progress = (label) => (p) => {
+  if (p.status === 'progress') postMessage({ type: 'dl', label, file: p.file, loaded: p.loaded, total: p.total });
+};
+const step = (label, i, n) => postMessage({ type: 'step', label, i, n });
+
+// ---- voice/music split: UVR MDX-Net (n_fft 6144 = 3 x 2048) ----
+const NFFT = 6144, HOP = 1024, DF = 3072, DT = 256, CH = HOP * (DT - 1), TRIM = NFFT / 2, GEN = CH - 2 * TRIM;
+const N2 = 2048, C2 = new Float64Array(N2 / 2), S2 = new Float64Array(N2 / 2), REV = new Uint16Array(N2);
+const C6 = new Float64Array(NFFT), S6 = new Float64Array(NFFT), WIN = new Float32Array(NFFT);
+for (let k = 0; k < N2 / 2; k++) { C2[k] = Math.cos(2 * Math.PI * k / N2); S2[k] = Math.sin(2 * Math.PI * k / N2); }
+for (let i = 0; i < N2; i++) { let r = 0; for (let b = 0; b < 11; b++) r |= ((i >> b) & 1) << (10 - b); REV[i] = r; }
+for (let k = 0; k < NFFT; k++) { C6[k] = Math.cos(2 * Math.PI * k / NFFT); S6[k] = Math.sin(2 * Math.PI * k / NFFT); WIN[k] = 0.5 - 0.5 * C6[k]; }
+function fft2(re, im) {
+  for (let i = 0; i < N2; i++) { const j = REV[i]; if (j > i) { let t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; } }
+  for (let size = 2; size <= N2; size <<= 1) {
+    const half = size >> 1, st = N2 / size;
+    for (let i = 0; i < N2; i += size) for (let j = 0, k = 0; j < half; j++, k += st) {
+      const a = i + j, b = a + half, tr = re[b] * C2[k] + im[b] * S2[k], ti = im[b] * C2[k] - re[b] * S2[k];
+      re[b] = re[a] - tr; im[b] = im[a] - ti; re[a] += tr; im[a] += ti;
+    }
+  }
+}
+const YR = [0, 1, 2].map(() => new Float64Array(N2)), YI = [0, 1, 2].map(() => new Float64Array(N2));
+function fft6(re, im) { // forward, in place
+  for (let q = 0; q < 3; q++) { for (let m = 0; m < N2; m++) { YR[q][m] = re[3 * m + q]; YI[q][m] = im[3 * m + q]; } fft2(YR[q], YI[q]); }
+  for (let k = 0; k < NFFT; k++) {
+    const km = k & (N2 - 1); let sr = YR[0][km], si = YI[0][km];
+    for (let q = 1; q < 3; q++) { const j = (q * k) % NFFT, c = C6[j], s = S6[j], yr = YR[q][km], yi = YI[q][km]; sr += yr * c + yi * s; si += yi * c - yr * s; }
+    re[k] = sr; im[k] = si;
+  }
+}
+const FR = new Float64Array(NFFT), FI = new Float64Array(NFFT);
+function stft(x, dst, c) {
+  for (let f = 0; f < DT; f++) {
+    const st = f * HOP - NFFT / 2;
+    for (let k = 0; k < NFFT; k++) { let j = st + k; if (j < 0) j = -j; else if (j >= CH) j = 2 * (CH - 1) - j; FR[k] = x[j] * WIN[k]; FI[k] = 0; }
+    fft6(FR, FI);
+    for (let b = 0; b < DF; b++) { dst[((2 * c) * DF + b) * DT + f] = FR[b]; dst[((2 * c + 1) * DF + b) * DT + f] = FI[b]; }
+  }
+}
+function istft(o, c) {
+  const y = new Float64Array(CH + NFFT), w = new Float64Array(CH + NFFT);
+  for (let f = 0; f < DT; f++) {
+    for (let b = 0; b < DF; b++) { FR[b] = o[((2 * c) * DF + b) * DT + f]; FI[b] = -o[((2 * c + 1) * DF + b) * DT + f]; }
+    FR[DF] = 0; FI[DF] = 0;
+    for (let b = 1; b < DF; b++) { FR[NFFT - b] = FR[b]; FI[NFFT - b] = -FI[b]; }
+    fft6(FR, FI); // conj -> fft -> real/N = real part of the inverse
+    for (let k = 0; k < NFFT; k++) { y[f * HOP + k] += (FR[k] / NFFT) * WIN[k]; w[f * HOP + k] += WIN[k] * WIN[k]; }
+  }
+  const out = new Float32Array(CH);
+  for (let t = 0; t < CH; t++) { const p = t + NFFT / 2; out[t] = w[p] > 1e-8 ? y[p] / w[p] : 0; }
+  return out;
+}
+async function fetchModel(url, label) {
+  let c = null;
+  if (await canCache()) { try { c = await caches.open('vd-models'); const hit = await c.match(url); if (hit) return new Uint8Array(await hit.arrayBuffer()); } catch { c = null; } }
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('Could not download the model (' + res.status + ')');
+  const total = +res.headers.get('content-length') || 0, rd = res.body.getReader(), parts = [];
+  for (let got = 0; ;) {
+    const { done, value } = await rd.read(); if (done) break;
+    parts.push(value); got += value.length;
+    postMessage({ type: 'dl', label, file: url, loaded: got, total: total || got });
+  }
+  const blob = new Blob(parts);
+  if (c) try { await c.put(url, new Response(blob)); } catch {}
+  return new Uint8Array(await blob.arrayBuffer());
+}
+let ort, sess;
+
+const ops = {
+  async asr({ audio, model, language, task }) {
+    const { pipeline } = await TF(), g = await hasGPU();
+    const pipe = await pipeline('automatic-speech-recognition', model, {
+      device: g ? 'webgpu' : 'wasm',
+      dtype: g ? { encoder_model: 'fp32', decoder_model_merged: 'q4' } : 'q8',
+      progress_callback: progress('Speech model'),
+    });
+    postMessage({ type: 'msg', text: `Recognizing speech on ${g ? 'GPU' : 'CPU'}` });
+    const opt = { return_timestamps: true, chunk_length_s: 30, stride_length_s: 5 };
+    if (language) opt.language = language;
+    if (task) opt.task = task;
+    const out = await pipe(audio, opt);
+    await pipe.dispose();
+    return (out.chunks || [{ timestamp: [0, null], text: out.text }])
+      .map((c) => ({ s: c.timestamp[0] ?? 0, e: c.timestamp[1], t: c.text.trim() }))
+      .filter((c) => c.t);
+  },
+
+  async spk({ clips }) {
+    const { AutoProcessor, AutoModel } = await TF();
+    const id = 'Xenova/wavlm-base-plus-sv';
+    const proc = await AutoProcessor.from_pretrained(id);
+    const model = await AutoModel.from_pretrained(id, { dtype: 'q8', device: 'wasm', progress_callback: progress('Speaker model') });
+    const out = [];
+    for (let i = 0; i < clips.length; i++) {
+      if (!clips[i]) out.push(null);
+      else { const { embeddings } = await model(await proc(clips[i])); out.push(new Float32Array(embeddings.data)); }
+      step('Finding speakers', i + 1, clips.length);
+    }
+    await model.dispose();
+    return out;
+  },
+
+  async mt({ texts, src, tgt }) {
+    const { pipeline } = await TF();
+    const pipe = await pipeline('translation', 'Xenova/nllb-200-distilled-600M', { device: 'wasm', dtype: 'q8', progress_callback: progress('Translation model') });
+    const res = [];
+    for (let i = 0; i < texts.length; i++) {
+      const o = await pipe(texts[i], { src_lang: src, tgt_lang: tgt, max_new_tokens: 400 });
+      res.push(o[0].translation_text);
+      step('Translating', i + 1, texts.length);
+    }
+    await pipe.dispose();
+    return res;
+  },
+
+  async tts({ model, dtype, texts }) {
+    const { pipeline } = await TF();
+    const pipe = await pipeline('text-to-speech', model, { device: 'wasm', dtype, progress_callback: progress('Voice model') });
+    // MMS breaks on characters missing from its vocabulary (। , . ১৫ ...): turn them into spaces
+    const vocab = pipe.tokenizer.model.tokens_to_ids, has = (c) => vocab.has(c);
+    const clean = (t) => [...t.replace(/[০-৯]/g, (d) => '০১২৩৪৫৬৭৮৯'.indexOf(d))]
+      .map((c) => (has(c) ? c : has(c.toLowerCase()) ? c.toLowerCase() : ' ')).join('').replace(/\s+/g, ' ').trim();
+    const res = [];
+    for (let i = 0; i < texts.length; i++) {
+      const t = clean(texts[i]);
+      const o = t ? await pipe(t) : { audio: new Float32Array(0), sampling_rate: 16000 };
+      res.push({ audio: o.audio, sr: o.sampling_rate });
+      step('Making voices', i + 1, texts.length);
+    }
+    await pipe.dispose();
+    return res;
+  },
+
+  async kokoro({ voices, texts }) {
+    await canCache();
+    const { KokoroTTS } = await import(KOKORO_URL);
+    const tts = await KokoroTTS.from_pretrained('onnx-community/Kokoro-82M-v1.0-ONNX', { dtype: 'q8', device: 'wasm', progress_callback: progress('Voice model') });
+    const res = [];
+    for (let i = 0; i < texts.length; i++) {
+      const o = texts[i].trim() ? await tts.generate(texts[i], { voice: voices[i] }) : { audio: new Float32Array(0), sampling_rate: 24000 };
+      res.push({ audio: o.audio, sr: o.sampling_rate });
+      step('Making voices', i + 1, texts.length);
+    }
+    return res;
+  },
+
+  async sep({ l, r, part, parts }) {
+    if (!sess) {
+      ort = await import(ORT + 'ort.all.bundle.min.mjs');
+      ort.env.wasm.wasmPaths = ORT;
+      const buf = await fetchModel(SEP_URL, 'Voice/music model');
+      sess = await ort.InferenceSession.create(buf, { executionProviders: (await hasGPU()) ? ['webgpu', 'wasm'] : ['wasm'] });
+    }
+    const n = l.length, pad = GEN - (n % GEN), tot = TRIM + n + pad + TRIM;
+    const P = [new Float32Array(tot), new Float32Array(tot)]; P[0].set(l, TRIM); P[1].set(r, TRIM);
+    const out = [new Float32Array(n + pad), new Float32Array(n + pad)], steps = (n + pad) / GEN;
+    for (let i = 0, s = 0; i < n + pad; i += GEN, s++) {
+      const inp = new Float32Array(4 * DF * DT);
+      for (let c = 0; c < 2; c++) stft(P[c].subarray(i, i + CH), inp, c);
+      const res = await sess.run({ [sess.inputNames[0]]: new ort.Tensor('float32', inp, [1, 4, DF, DT]) });
+      const o = res[sess.outputNames[0]].data;
+      for (let c = 0; c < 2; c++) out[c].set(istft(o, c).subarray(TRIM, CH - TRIM), i);
+      step('Separating voice and music', part * steps + s + 1, parts * steps);
+    }
+    return { l: out[0].subarray(0, n), r: out[1].subarray(0, n) };
+  },
+};
+
+function transfers(v, t = new Set()) {
+  if (v instanceof Float32Array) t.add(v.buffer);
+  else if (Array.isArray(v)) v.forEach((x) => transfers(x, t));
+  else if (v && typeof v === 'object') Object.values(v).forEach((x) => transfers(x, t));
+  return [...t];
+}
+onmessage = async ({ data: { id, op, args } }) => {
+  try {
+    const result = await ops[op](args);
+    postMessage({ type: 'done', id, result }, transfers(result));
+  } catch (e) {
+    postMessage({ type: 'error', id, error: String(e && e.message || e) });
+  }
+};
+</script>
+
+<script type="module">
+// Flow: read audio (ffmpeg) → [split voice/music] → Whisper → join sentences → find speakers → NLLB
+//       → voices (matched to each speaker) → fit timing without changing pitch → mix → build video (ffmpeg)
+const $ = (id) => document.getElementById('vd-' + id);
+let file, info = { w: 0, h: 0 }, dur = 0, segs = [], speakers = [], bgCache = null, running = false;
+
+// code: [English name, NLLB code, Whisper language, MMS voice model, dtype]
+const LANGS = {
+  en: ['English', 'eng_Latn', 'english', 'Xenova/mms-tts-eng', 'q8'],
+  bn: ['Bengali (বাংলা)', 'ben_Beng', 'bengali', 'PRAMSSS/mms-tts-bengali-webgpu', 'fp32'],
+  hi: ['Hindi (हिन्दी)', 'hin_Deva', 'hindi', 'Xenova/mms-tts-hin', 'q8'],
+  ur: ['Urdu (اردو)', 'urd_Arab', 'urdu'],
+  ar: ['Arabic (العربية)', 'arb_Arab', 'arabic', 'Xenova/mms-tts-ara', 'q8'],
+  fa: ['Persian (فارسی)', 'pes_Arab', 'persian'],
+  tr: ['Turkish', 'tur_Latn', 'turkish'],
+  zh: ['Chinese (中文)', 'zho_Hans', 'chinese'],
+  ja: ['Japanese (日本語)', 'jpn_Jpan', 'japanese'],
+  ko: ['Korean (한국어)', 'kor_Hang', 'korean', 'Xenova/mms-tts-kor', 'q8'],
+  id: ['Indonesian', 'ind_Latn', 'indonesian'],
+  ms: ['Malay', 'zsm_Latn', 'malay'],
+  th: ['Thai (ไทย)', 'tha_Thai', 'thai'],
+  vi: ['Vietnamese', 'vie_Latn', 'vietnamese', 'Xenova/mms-tts-vie', 'q8'],
+  ne: ['Nepali (नेपाली)', 'npi_Deva', 'nepali'],
+  ta: ['Tamil (தமிழ்)', 'tam_Taml', 'tamil'],
+  fr: ['French', 'fra_Latn', 'french', 'Xenova/mms-tts-fra', 'q8'],
+  es: ['Spanish', 'spa_Latn', 'spanish', 'Xenova/mms-tts-spa', 'q8'],
+  pt: ['Portuguese', 'por_Latn', 'portuguese', 'Xenova/mms-tts-por', 'q8'],
+  de: ['German', 'deu_Latn', 'german', 'Xenova/mms-tts-deu', 'q8'],
+  it: ['Italian', 'ita_Latn', 'italian'],
+  nl: ['Dutch', 'nld_Latn', 'dutch'],
+  pl: ['Polish', 'pol_Latn', 'polish'],
+  ru: ['Russian', 'rus_Cyrl', 'russian', 'Xenova/mms-tts-rus', 'q8'],
+  uk: ['Ukrainian', 'ukr_Cyrl', 'ukrainian'],
+};
+const KOKORO = {
+  M: ['am_michael', 'bm_george', 'am_fenrir', 'am_adam', 'bm_lewis', 'am_eric'],
+  F: ['af_heart', 'bf_emma', 'af_bella', 'af_nicole', 'bf_isabella', 'af_sarah'],
+};
+const KOKORO_NAMES = { am_michael: 'Michael (man, US)', bm_george: 'George (man, UK)', am_fenrir: 'Fenrir (man, US)', af_heart: 'Heart (woman, US)', bf_emma: 'Emma (woman, UK)', af_bella: 'Bella (woman, US)' };
+const ASR_FAST = 'onnx-community/whisper-base', ASR_GOOD = 'onnx-community/whisper-small';
+const MAX_SPEED = 1.5, SR = 24000, SEP_WIN = 120, SEP_MARGIN = 1, SPK_TH = 0.8, MALE_F0 = 165;
+const BG_VOL = { none: 0, orig: 15, ai: 100, fast: 100 };
+const STEPS = { audio: 'Read the audio', sep: 'Separate voices from music', asr: 'Recognize speech', spk: 'Find the speakers', mt: 'Translate', tts: 'Make the new voices', mix: 'Mix the audio', video: 'Build the video' };
+
+// ---- form ----
+const names = Object.entries(LANGS).sort((a, b) => a[1][0].localeCompare(b[1][0]));
+$('src').innerHTML = '<option value="auto">Detect automatically</option>' + names.map(([k, v]) => `<option value="${k}">${v[0]}</option>`).join('');
+$('tgt').innerHTML = names.map(([k, v]) => `<option value="${k}">${v[0]}${v[3] ? '' : ' — subtitles only'}</option>`).join('');
+$('tgt').value = 'bn';
+function langUI() {
+  const t = $('tgt').value, L = LANGS[t];
+  $('voice').innerHTML = !L[3] ? '<option value="">No voice yet for this language</option>'
+    : '<option value="auto">Automatic: a matching voice for each speaker</option>'
+      + (t === 'en' ? Object.entries(KOKORO_NAMES).map(([k, v]) => `<option value="${k}">Everyone: ${v}</option>`).join('') : '')
+      + '<option value="plain">Basic voice, no changes</option>';
+  $('hint').className = 'hint ' + (L[3] ? 'ok' : 'warn');
+  $('hint').textContent = L[3] ? `✓ A new ${L[0].split(' (')[0]} voice will be added.` : `${L[0].split(' (')[0]} has no voice yet, so you will get translated subtitles (.srt) only.`;
+}
+langUI();
+$('tgt').onchange = () => { langUI(); if (segs.length) note('You changed the language. Press Start again to translate.'); };
+const volUI = () => { $('volv').textContent = $('vol').value + '%'; $('volw').hidden = $('bg').value === 'none'; };
+$('bg').onchange = () => { $('vol').value = BG_VOL[$('bg').value]; volUI(); bgCache = null; };
+$('vol').oninput = volUI;
+$('bg').onchange();
+
+const log = (t) => { $('log').textContent = new Date().toLocaleTimeString() + '  ' + t + '\n' + $('log').textContent; };
+const stat = (t) => { $('stat').textContent = t; };
+const bar = (f) => ($('bar').style.width = Math.round(Math.max(0, Math.min(1, f)) * 100) + '%');
+const fmtT = (s) => (s < 60 ? Math.round(s) + ' s' : Math.round(s / 60) + ' min');
+const note = (t) => { $('notes').insertAdjacentHTML('beforeend', `<li>${esc(t)}</li>`); log(t); };
+function plan(keys) { $('steps').innerHTML = keys.map((k) => `<li data-k="${k}">${STEPS[k]}</li>`).join(''); }
+function mark(k) { // k runs; everything before it is done
+  let seen = false;
+  for (const li of $('steps').children) { if (li.dataset.k === k) { seen = true; li.className = 'run'; } else li.className = seen ? '' : 'done'; }
+  bar(0); stat(''); log(STEPS[k]);
+}
+const finish = () => { for (const li of $('steps').children) li.className = 'done'; bar(1); stat(''); };
+
+// ---- workers ----
+const workers = {}, waiting = {}, stepT = {};
+let seq = 0;
+function worker(kind) {
+  if (workers[kind]) return workers[kind];
+  const w = new Worker(URL.createObjectURL(new Blob([document.getElementById('vd-worker').textContent], { type: 'text/javascript' })), { type: 'module', name: kind });
+  let files = {}, label;
+  w.onmessage = ({ data: d }) => {
+    if (d.type === 'dl') {
+      if (label !== d.label) { files = {}; label = d.label; }
+      files[d.file] = [d.loaded, d.total];
+      const v = Object.values(files), l = v.reduce((a, x) => a + x[0], 0), t = v.reduce((a, x) => a + x[1], 0);
+      bar(l / t); stat(`Loading ${d.label.toLowerCase()}: ${(l / 1e6).toFixed(0)} of ${(t / 1e6).toFixed(0)} MB`);
+    } else if (d.type === 'step') {
+      const now = performance.now();
+      if (!stepT[d.label] || d.i <= stepT[d.label][1]) stepT[d.label] = [now, d.i];
+      const [t0, i0] = stepT[d.label], eta = d.i > i0 ? (now - t0) / 1000 / (d.i - i0) * (d.n - d.i) : 0;
+      bar(d.i / d.n); stat(`${d.label}: ${d.i} of ${d.n}` + (eta > 3 ? ` · about ${fmtT(eta)} left` : ''));
+    } else if (d.type === 'msg') log(d.text);
+    else { const p = waiting[d.id]; delete waiting[d.id]; if (p) d.type === 'error' ? p[1](new Error(d.error)) : p[0](d.result); }
+  };
+  w.onerror = (e) => { e.preventDefault(); stop(kind, 'The AI loader could not start. Check your internet connection. ' + (e.message || '')); };
+  return (workers[kind] = w);
+}
+function call(kind, op, args, transfer = []) {
+  return new Promise((ok, bad) => { const id = ++seq; waiting[id] = [ok, bad, kind]; worker(kind).postMessage({ id, op, args }, transfer); });
+}
+function stop(kind, msg) { // no kind = stop everything
+  for (const k of Object.keys(workers)) if (!kind || k === kind) { workers[k].terminate(); delete workers[k]; }
+  for (const id of Object.keys(waiting)) if (!kind || waiting[id][2] === kind) { waiting[id][1](Object.assign(new Error(msg), { cancel: !kind })); delete waiting[id]; }
+  if (!kind && ff) { ff.terminate(); ff = null; mounted = null; }
+}
+
+// ---- ffmpeg (input mounted with WORKERFS, so the video is not copied into memory) ----
+const FF = 'https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.15/dist/esm/';
+const CORE = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/esm/';
+let ff, mounted, ffLog = [], ffProg = false;
+async function getFF() {
+  if (!ff) {
+    stat('Loading the video tool (30 MB)…');
+    const { FFmpeg } = await import(FF + 'index.js');
+    const blobURL = async (u, t) => URL.createObjectURL(new Blob([await (await fetch(u)).arrayBuffer()], { type: t }));
+    // ffmpeg's own worker must be same-origin: rebuild it as a blob with absolute imports
+    const wsrc = (await (await fetch(FF + 'worker.js')).text()).replace(/from "\.\//g, 'from "' + FF);
+    const f = new FFmpeg();
+    f.on('log', ({ message }) => { ffLog.push(message); if (ffLog.length > 40) ffLog.shift(); });
+    f.on('progress', ({ progress }) => { if (ffProg) { bar(progress); stat('Building the video: ' + Math.round(Math.max(0, Math.min(1, progress)) * 100) + '%'); } });
+    await f.load({
+      classWorkerURL: URL.createObjectURL(new Blob([wsrc], { type: 'text/javascript' })),
+      coreURL: await blobURL(CORE + 'ffmpeg-core.js', 'text/javascript'),
+      wasmURL: await blobURL(CORE + 'ffmpeg-core.wasm', 'application/wasm'),
+    });
+    ff = f; mounted = null;
+  }
+  if (mounted !== file) {
+    if (mounted) await ff.unmount('/in').catch(() => {});
+    await ff.createDir('/in').catch(() => {});
+    await ff.mount('WORKERFS', { files: [file] }, '/in');
+    mounted = file;
+  }
+  return ff;
+}
+const IN = () => '/in/' + file.name;
+async function run(args, prog = false) {
+  const f = await getFF();
+  ffLog = []; ffProg = prog;
+  const code = await f.exec(args);
+  ffProg = false;
+  if (code !== 0) throw new Error('The video tool failed: ' + ffLog.slice(-3).join(' | '));
+}
+async function readF32(name) {
+  let u = await ff.readFile(name);
+  await ff.deleteFile(name);
+  if (u.byteOffset % 4) u = u.slice();
+  return new Float32Array(u.buffer, u.byteOffset, u.byteLength >> 2);
+}
+const pcm = async (extra) => { await run(['-i', IN(), '-vn', ...extra, '-f', 'f32le', 'p.raw']); return readF32('p.raw'); };
+
+// ---- audio helpers ----
+function stretch(x, r, sr) { // WSOLA: output = input / r long, pitch unchanged
+  const N = Math.round(sr * 0.04) & ~1, H = N >> 1, tol = Math.round(sr * 0.012), win = new Float32Array(N);
+  for (let i = 0; i < N; i++) win[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / N);
+  const outLen = Math.floor(x.length / r), y = new Float32Array(outLen + N), ws = new Float32Array(outLen + N);
+  let prev = 0;
+  for (let o = 0; o < outLen; o += H) {
+    const ideal = Math.round(o * r); let best = Math.min(ideal, Math.max(0, x.length - N));
+    if (o > 0) {
+      const nat = prev + H; let bc = -Infinity;
+      for (let d = -tol; d <= tol; d += 2) {
+        const p = ideal + d; if (p < 0 || p + N > x.length) continue;
+        let c = 0; for (let k = 0; k < N && nat + k < x.length; k += 4) c += x[p + k] * x[nat + k];
+        if (c > bc) { bc = c; best = p; }
+      }
+    }
+    prev = best;
+    for (let k = 0; k < N && best + k < x.length; k++) { y[o + k] += x[best + k] * win[k]; ws[o + k] += win[k]; }
+  }
+  for (let i = 0; i < outLen; i++) if (ws[i] > 1e-3) y[i] /= ws[i];
+  return y.subarray(0, outLen);
+}
+function resample(a, from, to) {
+  if (from === to) return a;
+  const n = Math.floor(a.length * to / from), o = new Float32Array(n), f = from / to;
+  for (let i = 0; i < n; i++) { const p = i * f, j = p | 0, t = p - j; o[i] = a[j] * (1 - t) + (a[j + 1] ?? a[j]) * t; }
+  return o;
+}
+function addAt(mix, a, at, g = 1) { for (let i = 0, j = at; i < a.length && j < mix.length; i++, j++) if (j >= 0) mix[j] += a[i] * g; }
+function pitch(x, sr) { // median voice pitch in Hz (autocorrelation), 0 if none found
+  const N = Math.round(sr * 0.04), H = Math.round(sr * 0.04), lo = Math.floor(sr / 400), hi = Math.ceil(sr / 70), vals = [];
+  const r = (s, l) => { let c = 0, a = 0, b = 0; for (let k = 0; k < N; k += 2) { const u = x[s + k], v = x[s + k + l]; c += u * v; a += u * u; b += v * v; } return c / Math.sqrt(a * b + 1e-12); };
+  for (let s = 0; s + N + hi < x.length && vals.length < 120; s += H) {
+    let e = 0; for (let k = 0; k < N; k += 4) e += x[s + k] * x[s + k];
+    if (e / (N / 4) < 2e-4) continue;
+    let best = 0, bl = 0;
+    for (let l = lo; l <= hi; l++) { const c = r(s, l); if (c > best) { best = c; bl = l; } }
+    if (best < 0.6) continue;
+    const half = Math.round(bl / 2); if (half >= lo && r(s, half) > 0.85 * best) bl = half; // octave error guard
+    vals.push(sr / bl);
+  }
+  vals.sort((a, b) => a - b);
+  return vals.length > 3 ? vals[vals.length >> 1] : 0;
+}
+function toWav(p, sr) {
+  const b = new DataView(new ArrayBuffer(44 + p.length * 2));
+  const w = (o, s) => [...s].forEach((c, i) => b.setUint8(o + i, c.charCodeAt(0)));
+  w(0, 'RIFF'); b.setUint32(4, 36 + p.length * 2, true); w(8, 'WAVEfmt ');
+  b.setUint32(16, 16, true); b.setUint16(20, 1, true); b.setUint16(22, 1, true);
+  b.setUint32(24, sr, true); b.setUint32(28, sr * 2, true); b.setUint16(32, 2, true); b.setUint16(34, 16, true);
+  w(36, 'data'); b.setUint32(40, p.length * 2, true);
+  for (let i = 0; i < p.length; i++) b.setInt16(44 + i * 2, Math.max(-1, Math.min(1, p[i])) * 0x7fff, true);
+  return new Blob([b], { type: 'audio/wav' });
+}
+
+// ---- file ----
+function meta(f) {
+  return new Promise((res) => {
+    const v = document.createElement('video'), u = URL.createObjectURL(f);
+    const done = (m) => { URL.revokeObjectURL(u); res(m); };
+    v.preload = 'metadata'; v.muted = true;
+    v.onloadedmetadata = () => done({ w: v.videoWidth, h: v.videoHeight, d: v.duration });
+    v.onerror = () => done({ w: 0, h: 0 });
+    setTimeout(() => done({ w: 0, h: 0 }), 5000);
+    v.src = u;
+  });
+}
+async function setFile() {
+  file = $('file').files[0];
+  segs = []; speakers = []; bgCache = null;
+  for (const id of ['prog', 'res', 'edit']) $(id).hidden = true;
+  busy(false);
+  if (!file) return;
+  $('fname').textContent = file.name;
+  $('finfo').textContent = (file.size / 1e6).toFixed(1) + ' MB';
+  info = await meta(file);
+  if (info.w) $('finfo').textContent += ` · ${info.w}×${info.h}` + (isFinite(info.d) ? ` · ${(info.d / 60).toFixed(1)} min` : '');
+}
+$('file').onchange = setFile;
+setTimeout(() => { if ($('file').files[0]) setFile(); });
+const drop = $('drop');
+drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('on'); });
+drop.addEventListener('dragleave', () => drop.classList.remove('on'));
+drop.addEventListener('drop', (e) => {
+  e.preventDefault(); drop.classList.remove('on');
+  if (!running && e.dataTransfer.files[0]) { $('file').files = e.dataTransfer.files; setFile(); }
+});
+
+function busy(b) {
+  running = b;
+  $('start').disabled = b || !file;
+  $('voicebtn').disabled = b || !segs.length || !$('voice').value;
+  $('file').disabled = b; $('stop').hidden = !b;
+}
+$('stop').onclick = () => { stop(null, 'Cancelled.'); };
+function fail(e) {
+  console.error(e);
+  $('err').textContent = e.cancel ? 'Cancelled.' : 'Something went wrong: ' + e.message;
+  $('err').hidden = false; log('Error: ' + e.message);
+  for (const li of $('steps').children) if (li.className === 'run') li.className = '';
+  stat('');
+}
+
+// ---- text helpers ----
+function guess(t) { // guess the language from its script (Latin script → English)
+  const n = (re) => (t.match(re) || []).length;
+  const c = { bn: n(/[ঀ-৿]/g), hi: n(/[ऀ-ॿ]/g), ar: n(/[؀-ۿ]/g), ru: n(/[Ѐ-ӿ]/g), th: n(/[฀-๿]/g),
+    ta: n(/[஀-௿]/g), ko: n(/[가-힯]/g), ja: n(/[぀-ヿ]/g) * 3, zh: n(/[一-鿿]/g) };
+  const [k, v] = Object.entries(c).sort((a, b) => b[1] - a[1])[0];
+  return v > t.length * 0.2 ? k : 'en';
+}
+function merge(raw) { // join Whisper pieces into whole sentences, so translation has context
+  const out = [];
+  for (const c of raw) {
+    const p = out[out.length - 1];
+    if (p && !/[.?!।。？！]["'”)\]]?$/.test(p.t) && c.s - p.e < 1 && c.e - p.s < 15) { p.t += ' ' + c.t; p.e = c.e; }
+    else out.push({ ...c });
+  }
+  return out;
+}
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
+const clock = (t) => new Date(t * 1000).toISOString().slice(11, 23).replace('.', ',');
+
+// ---- speakers ----
+function cluster(embs) {
+  const unit = (e) => { let n = 0; for (const x of e) n += x * x; n = Math.sqrt(n) || 1; return e.map((x) => x / n); };
+  const dot = (a, b) => { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * b[i]; return s; };
+  const C = [];
+  const lab = embs.map((e) => {
+    if (!e) return -1;
+    e = unit(e); let bi = -1, bs = -1;
+    C.forEach((c, i) => { const s = dot(e, unit(c)); if (s > bs) { bs = s; bi = i; } });
+    if (bs >= SPK_TH) { for (let i = 0; i < e.length; i++) C[bi][i] += e[i]; return bi; }
+    C.push(Float32Array.from(e)); return C.length - 1;
+  });
+  for (let i = 0; i < lab.length; i++) if (lab[i] < 0) lab[i] = lab[i - 1] ?? lab.find((x) => x >= 0) ?? 0; // short lines join a neighbour
+  return lab.map((x) => Math.max(0, x));
+}
+async function findSpeakers(a16) {
+  const clips = segs.map((s) => {
+    const len = s.e - s.s; if (len < 0.8) return null;
+    const mid = (s.s + s.e) / 2, half = Math.min(len, 8) / 2;
+    return a16.slice(Math.round((mid - half) * 16000), Math.round((mid + half) * 16000));
+  });
+  const f0 = clips.map((c) => (c ? pitch(c, 16000) : 0));
+  const embs = await call('main', 'spk', { clips }, clips.filter(Boolean).map((c) => c.buffer));
+  const lab = cluster(embs);
+  speakers = [];
+  lab.forEach((k, i) => { (speakers[k] ||= { f0s: [] }); if (f0[i]) speakers[k].f0s.push(f0[i]); segs[i].spk = k; });
+  for (let k = 0; k < speakers.length; k++) {
+    const p = speakers[k];
+    if (!p) { speakers[k] = { f0: 0, g: 'M' }; continue; }
+    p.f0s.sort((a, b) => a - b); p.f0 = p.f0s[p.f0s.length >> 1] || 0; p.g = p.f0 && p.f0 >= MALE_F0 ? 'F' : 'M'; delete p.f0s;
+  }
+  log(`Found ${speakers.length} speaker(s): ` + speakers.map((p, k) => `#${k + 1} ${p.g === 'F' ? 'woman' : 'man'} ${Math.round(p.f0)} Hz`).join(', '));
+}
+const spkName = (k) => `Speaker ${k + 1} · ${speakers[k].g === 'F' ? 'Woman' : 'Man'}`;
+
+// ---- editor ----
+function editor() {
+  $('spk').innerHTML = speakers.map((p, k) => `<label>Speaker ${k + 1}<select data-g="${k}"><option value="M"${p.g === 'M' ? ' selected' : ''}>Man</option><option value="F"${p.g === 'F' ? ' selected' : ''}>Woman</option></select></label>`).join('');
+  const opt = (sel) => speakers.map((_, k) => `<option value="${k}"${k === sel ? ' selected' : ''}>${esc(spkName(k))}</option>`).join('');
+  $('tab').innerHTML = segs.map((s, i) => `<tr><td class="t">${clock(s.s).slice(3, 8)}</td>`
+    + `<td class="s">${speakers.length > 1 ? `<select data-s="${i}">${opt(s.spk)}</select>` : ''}</td>`
+    + `<td><small>${esc(s.t)}</small><textarea data-i="${i}" aria-label="Translation at ${clock(s.s).slice(3, 8)}">${esc(s.tr)}</textarea></td></tr>`).join('');
+  $('edit').hidden = false;
+}
+$('edit').addEventListener('input', (e) => { const i = e.target.dataset.i; if (i) { segs[i].tr = e.target.value; refreshSrt(); } });
+$('edit').addEventListener('change', (e) => {
+  const d = e.target.dataset;
+  if (d.s) segs[d.s].spk = +e.target.value;
+  if (d.g) { speakers[d.g].g = e.target.value; editor(); }
+});
+
+// ---- outputs ----
+const stem = () => file.name.replace(/\.[^.]+$/, '') + '-' + $('tgt').value;
+const srt = () => segs.map((s, i) => `${i + 1}\n${clock(s.s)} --> ${clock(s.e)}\n${s.tr}\n`).join('\n');
+let made = [], srtA = null;
+function addOut(blob, name, text, ghost = true) {
+  const u = URL.createObjectURL(blob); made.push(u);
+  $('dl').insertAdjacentHTML('beforeend', `<a class="btn${ghost ? ' ghost' : ''}" href="${u}" download="${esc(name)}">⬇ ${text}</a>`);
+  return $('dl').lastElementChild;
+}
+function refreshSrt() {
+  const blob = new Blob([srt()], { type: 'text/plain' });
+  if (srtA && srtA.isConnected) { URL.revokeObjectURL(srtA.href); srtA.href = URL.createObjectURL(blob); }
+  else srtA = addOut(blob, stem() + '.srt', 'Subtitles (.srt)');
+}
+function resetOut() {
+  made.splice(0).forEach(URL.revokeObjectURL); srtA = null;
+  $('dl').innerHTML = ''; $('player').innerHTML = ''; $('notes').innerHTML = '';
+}
+
+// ---- background track (cached between rebuilds) ----
+async function separate() { // returns { bg: music at SR, vox: voices at 16 kHz }
+  const parts = Math.ceil(dur / SEP_WIN), bg = new Float32Array(Math.ceil(dur * SR)), vox = new Float32Array(Math.ceil(dur * 16000));
+  for (let k = 0; k < parts; k++) {
+    const t = k * SEP_WIN, ss = Math.max(0, t - SEP_MARGIN), len = Math.min(dur, t + SEP_WIN + SEP_MARGIN) - ss;
+    await run(['-ss', String(ss), '-t', String(len), '-i', IN(), '-vn', '-ac', '2', '-ar', '44100', '-f', 'f32le', 'p.raw']);
+    const st = await readF32('p.raw'), n = st.length >> 1, l = new Float32Array(n), r = new Float32Array(n);
+    for (let i = 0; i < n; i++) { l[i] = st[2 * i]; r[i] = st[2 * i + 1]; }
+    const from = Math.round((t - ss) * 44100), cnt = Math.round(Math.min(SEP_WIN, dur - t) * 44100);
+    const mixM = new Float32Array(cnt); for (let i = 0; i < cnt; i++) mixM[i] = 0.5 * ((st[2 * (from + i)] || 0) + (st[2 * (from + i) + 1] || 0));
+    const o = await call('sep', 'sep', { l, r, part: k, parts }, [l.buffer, r.buffer]);
+    const music = new Float32Array(cnt), voice = new Float32Array(cnt);
+    for (let i = 0; i < cnt; i++) { music[i] = 0.5 * ((o.l[from + i] || 0) + (o.r[from + i] || 0)); voice[i] = mixM[i] - music[i]; }
+    addAt(bg, resample(music, 44100, SR), Math.round(t * SR));
+    addAt(vox, resample(voice, 44100, 16000), Math.round(t * 16000));
+  }
+  stop('sep', 'done');
+  return { bg, vox };
+}
+async function background() {
+  const mode = $('bg').value;
+  if (mode === 'none') return null;
+  if (bgCache && bgCache.mode === mode) return bgCache.bg;
+  let bg;
+  if (mode === 'orig') bg = await pcm(['-ac', '1', '-ar', String(SR)]);
+  else if (mode === 'fast') {
+    bg = await pcm(['-af', 'aformat=channel_layouts=stereo,pan=mono|c0=0.5*c0-0.5*c1', '-ar', String(SR)]);
+    let e = 0; for (let i = 0; i < bg.length; i += 50) e += bg[i] * bg[i];
+    if (e / (bg.length / 50) < 1e-7) { note('The audio is not stereo, so the quick method could not remove the voices. Choose the "best" background option instead.'); bg = null; }
+  } else bg = (await separate()).bg;
+  bgCache = { mode, bg };
+  return bg;
+}
+
+// ---- main flow ----
+$('start').onclick = async () => {
+  const src = $('src').value, tgt = $('tgt').value, sep = $('bg').value === 'ai';
+  if (src === tgt) { $('err').textContent = 'The two languages are the same. Choose a different language to change to.'; $('err').hidden = false; $('prog').hidden = false; return; }
+  const direct = tgt === 'en' && src !== 'en'; // into English, Whisper translates by itself
+  const hasVoice = !!LANGS[tgt][3];
+  const asr = $('asr').value === 'auto' ? ASR_FAST : $('asr').value; // Accurate (whisper-small) needs a lot of memory, so only on request
+  busy(true); resetOut(); segs = []; speakers = []; bgCache = null;
+  for (const k in stepT) delete stepT[k];
+  $('err').hidden = true; $('prog').hidden = false; $('res').hidden = true; $('edit').hidden = true;
+  plan(['audio', ...(sep && hasVoice ? ['sep'] : []), 'asr', 'spk', ...(direct ? [] : ['mt']), ...(hasVoice ? ['tts', 'mix'] : []), ...(hasVoice && (info.w || file.type.startsWith('video/')) ? ['video'] : [])]);
+  try {
+    mark('audio');
+    let a16 = await pcm(['-ac', '1', '-ar', '16000']);
+    dur = a16.length / 16000;
+    if (!dur) throw new Error('This file has no audio.');
+    log(`Length: ${(dur / 60).toFixed(1)} min · speech model: ${asr.split('/')[1]}`);
+    if (sep && hasVoice) {
+      mark('sep');
+      const { bg, vox } = await separate();
+      bgCache = { mode: 'ai', bg }; a16 = vox; // clean voices help speech and speaker recognition
+    }
+    mark('asr');
+    const raw = await call('main', 'asr', {
+      audio: a16.slice(), model: asr,
+      language: src === 'auto' ? null : LANGS[src][2], task: direct ? 'translate' : 'transcribe',
+    });
+    if (!raw.length) throw new Error('No speech was found in this file.');
+    raw.forEach((c, i) => { if (c.e == null || c.e <= c.s) c.e = Math.min(raw[i + 1]?.s ?? dur, c.s + 8); });
+    segs = merge(raw);
+    segs.forEach((c, i) => { if (segs[i + 1]) c.e = Math.min(c.e, segs[i + 1].s); });
+    mark('spk');
+    await findSpeakers(a16);
+    a16 = null;
+    let out = segs.map((c) => c.t);
+    if (!direct) {
+      const s = src === 'auto' ? guess(out.join(' ')) : src;
+      if (src === 'auto') log(`Detected language: ${LANGS[s][0]}`);
+      if (s !== tgt) { mark('mt'); out = await call('main', 'mt', { texts: out, src: LANGS[s][1], tgt: LANGS[tgt][1] }); }
+    }
+    segs.forEach((c, i) => (c.tr = out[i]));
+    editor();
+    $('res').hidden = false; refreshSrt();
+    if (!hasVoice) { finish(); note(`${LANGS[tgt][0]} has no voice yet. Download the translated subtitles above.`); }
+    else if ($('review').checked) { stat('Check the translation below, then press "Make the voice".'); for (const li of $('steps').children) if (li.className === 'run') li.className = 'done'; }
+    else { busy(false); return makeVoice(); }
+  } catch (e) { fail(e); }
+  busy(false);
+};
+
+function pickVoices() { // English: a Kokoro voice per speaker; others: one MMS voice
+  const v = $('voice').value;
+  if ($('tgt').value !== 'en' || v === 'plain') return null;
+  if (v !== 'auto') return segs.map(() => v);
+  const used = { M: 0, F: 0 }, per = speakers.map((p) => KOKORO[p.g][used[p.g]++ % KOKORO[p.g].length]);
+  return segs.map((s) => per[s.spk]);
+}
+
+async function makeVoice() {
+  busy(true); resetOut(); refreshSrt(); $('err').hidden = true; $('res').hidden = false; $('prog').hidden = false;
+  for (const k in stepT) delete stepT[k];
+  const isVideo = info.w > 0 || file.type.startsWith('video/');
+  plan(['tts', 'mix', ...(isVideo ? ['video'] : [])]);
+  try {
+    const L = LANGS[$('tgt').value], texts = segs.map((s) => s.tr), kv = pickVoices();
+    mark('tts');
+    const vs = kv ? await call('kokoro', 'kokoro', { voices: kv, texts }) : await call('main', 'tts', { model: L[3], dtype: L[4], texts });
+    if (kv) stop('kokoro', 'done'); // free memory
+    mark('mix');
+    const mix = new Float32Array(Math.ceil(dur * SR)), bg = await background();
+    if (bg) addAt(mix, bg, 0, $('vol').value / 100);
+    const match = !kv && $('voice').value === 'auto'; // MMS: shift pitch toward each speaker
+    let fast = 0, over = 0;
+    vs.forEach((x, i) => {
+      if (!x.audio.length) return;
+      const sp = speakers[segs[i].spk] || { f0: 0, g: 'M' };
+      let p = 1;
+      if (match) {
+        const base = pitch(x.audio, x.sr), want = sp.f0 || (sp.g === 'F' ? 210 : 120);
+        if (base) p = Math.min(1.6, Math.max(0.7, want / base));
+        if (Math.abs(p - 1) < 0.04) p = 1;
+      }
+      const len = x.audio.length / x.sr, slot = Math.max(0.3, (segs[i + 1]?.s ?? dur) - segs[i].s);
+      const rate = Math.min(MAX_SPEED, Math.max(1, len / slot)), r = rate / p;
+      if (rate > 1.02) fast++;
+      if (len / rate > slot + 0.2) over++;
+      let y = p !== 1 ? resample(x.audio, x.sr * p, x.sr) : x.audio; // pitch ×p (and shorter)
+      if (Math.abs(r - 1) > 0.02) y = stretch(y, r, x.sr); // back to the right length
+      addAt(mix, resample(y, x.sr, SR), Math.round(segs[i].s * SR));
+    });
+    if (fast) note(`${fast} line(s) were sped up a little to fit (up to ${MAX_SPEED}×, pitch kept).`);
+    if (over) note(`${over} line(s) are still too long and overlap the next line. Shorten them below and make the voice again.`);
+    const wav = toWav(mix, SR);
+    if (isVideo) {
+      mark('video');
+      const [blob, ext] = await buildVideo(wav);
+      const a = addOut(blob, stem() + '.' + ext, 'Video', false);
+      $('dl').prepend(a);
+      $('player').innerHTML = `<video controls src="${a.href}"></video>`;
+      addOut(wav, stem() + '.wav', 'Audio only (.wav)');
+    } else {
+      const a = addOut(wav, stem() + '.wav', 'Audio (.wav)', false);
+      $('player').innerHTML = `<audio controls src="${a.href}" style="width:100%"></audio>`;
+    }
+    finish(); log('Done.');
+  } catch (e) { fail(e); }
+  busy(false);
+}
+$('voicebtn').onclick = makeVoice;
+
+// ---- video ----
+function wrap(g, text, max) {
+  const lines = []; let cur = '';
+  for (const w of text.split(/\s+/)) { const t = cur ? cur + ' ' + w : w; if (g.measureText(t).width > max && cur) { lines.push(cur); cur = w; } else cur = t; }
+  if (cur) lines.push(cur);
+  return lines;
+}
+async function subtitlePNGs() { // the browser draws the text, so every script (Bengali, Arabic …) shapes correctly
+  const W = info.w, H = info.h, cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const g = cv.getContext('2d'), fs = Math.max(16, Math.round(H * 0.05)), lh = fs * 1.35;
+  const png = async () => new Uint8Array(await (await new Promise((r) => cv.toBlob(r, 'image/png'))).arrayBuffer());
+  const f = await getFF();
+  await f.writeFile('b.png', await png());
+  let list = 'ffconcat version 1.0\n', t = 0;
+  for (let i = 0; i < segs.length; i++) {
+    const s = segs[i], e = Math.max(s.e, s.s + 0.3);
+    if (s.s > t + 0.01) list += `file b.png\nduration ${(s.s - t).toFixed(3)}\n`;
+    g.clearRect(0, 0, W, H);
+    g.font = `600 ${fs}px system-ui,"Segoe UI","Noto Sans Bengali","Nirmala UI",sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
+    const lines = wrap(g, s.tr, W * 0.9), top = H - fs * 0.8 - lines.length * lh;
+    const bw = Math.min(W, Math.max(...lines.map((l) => g.measureText(l).width)) + fs);
+    g.fillStyle = 'rgba(0,0,0,.6)'; g.fillRect((W - bw) / 2, top - fs * 0.2, bw, lines.length * lh + fs * 0.4);
+    g.fillStyle = '#fff'; lines.forEach((l, j) => g.fillText(l, W / 2, top + lh * (j + 0.5)));
+    await f.writeFile(`s${i}.png`, await png());
+    list += `file s${i}.png\nduration ${(e - Math.max(s.s, t)).toFixed(3)}\n`;
+    t = Math.max(t, e);
+  }
+  list += 'file b.png\nduration 1\nfile b.png\n';
+  await f.writeFile('list.txt', new TextEncoder().encode(list));
+  return segs.length;
+}
+async function buildVideo(wav) {
+  const f = await getFF();
+  await f.writeFile('a.wav', new Uint8Array(await wav.arrayBuffer()));
+  const burn = $('burn').checked && info.w > 0;
+  if ($('burn').checked && !burn) note('The video size could not be read, so subtitles were not burned in.');
+  const ext = (file.name.match(/\.([^.]+)$/) || [, 'mp4'])[1].toLowerCase();
+  const outExt = burn || ['mp4', 'mov', 'm4v'].includes(ext) ? 'mp4' : 'mkv';
+  let n = 0;
+  if (burn) {
+    stat('Drawing subtitles…'); n = await subtitlePNGs();
+    await run(['-i', IN(), '-f', 'concat', '-safe', '0', '-i', 'list.txt', '-i', 'a.wav',
+      '-filter_complex', '[0:v][1:v]overlay=0:0:eof_action=pass,format=yuv420p[v]', '-map', '[v]', '-map', '2:a',
+      '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23', '-c:a', 'aac', '-b:a', '160k', '-shortest', 'out.' + outExt], true);
+  } else {
+    await run(['-i', IN(), '-i', 'a.wav', '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '160k', '-shortest', 'out.' + outExt], true);
+  }
+  const data = await f.readFile('out.' + outExt);
+  for (const x of ['a.wav', 'out.' + outExt, 'list.txt', 'b.png', ...Array.from({ length: n }, (_, i) => `s${i}.png`)]) await f.deleteFile(x).catch(() => {});
+  return [new Blob([data.buffer], { type: outExt === 'mp4' ? 'video/mp4' : 'video/x-matroska' }), outExt];
+}
+</script>
+</body>
+</html>
