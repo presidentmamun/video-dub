@@ -130,9 +130,9 @@ footer{font-size:13px;color:var(--muted)}
     <div class="row" id="vd-quickopts" hidden>
       <label class="f">Size<select id="vd-qsize"><option value="same">Same size, just sharper</option><option value="2k">Enlarge to 2K (1440p)</option></select></label>
     </div>
-    <div class="row" id="vd-aiopts" hidden>
-      <label class="f">Size<select id="vd-aisize"></select></label>
-      <label class="f">Video type<select id="vd-aimodel"><option value="photo">Real camera video</option><option value="anime">Cartoon or anime (faster)</option></select></label>
+    <div class="row" id="vd-aiopts">
+      <label class="f">AI size<select id="vd-aisize" disabled><option>2K / 4K / 8K</option></select></label>
+      <label class="f">AI type<select id="vd-aimodel" disabled><option value="photo">Normal: real camera video (best detail, slow)</option><option value="anime">Anime: cartoon or animation (about 8x faster)</option></select></label>
     </div>
   </section>
 
@@ -477,7 +477,8 @@ const picMode = () => document.querySelector('input[name=pic]:checked').value;
 const lookOf = () => (picMode() !== 'quick' ? [] // lanczos enlarge (only when smaller), contrast-adaptive sharpen, a little more colour
   : [...($('qsize').value === '2k' && info.h && info.h < 1440 ? ['scale=-2:1440:flags=lanczos'] : []), 'cas=0.6', 'eq=contrast=1.05:saturation=1.12']);
 document.querySelectorAll('input[name=pic]').forEach((r) => (r.onchange = () => {
-  $('quickopts').hidden = picMode() !== 'quick'; $('aiopts').hidden = picMode() !== 'ai';
+  $('quickopts').hidden = picMode() !== 'quick';
+  $('aisize').disabled = $('aimodel').disabled = picMode() !== 'ai'; // always visible, usable when AI is chosen
 }));
 let aiJob = null;
 (async () => { // ask the local server (serve.cmd) whether this PC has a usable graphics card
