@@ -469,6 +469,8 @@ function worker(kind) {
 function call(kind, op, args, transfer = []) {
   return new Promise((ok, bad) => { const id = ++seq; waiting[id] = [ok, bad, kind]; worker(kind).postMessage({ id, op, args }, transfer); });
 }
+// WASM memory never shrinks, so each big model runs in a fresh worker that is closed afterwards
+async function once(op, args, transfer) { try { return await call(op, op, args, transfer); } finally { stop(op, 'done'); } }
 function stop(kind, msg) { // no kind = stop everything
   for (const k of Object.keys(workers)) if (!kind || k === kind) { workers[k].terminate(); delete workers[k]; }
   for (const id of Object.keys(waiting)) if (!kind || waiting[id][2] === kind) { waiting[id][1](Object.assign(new Error(msg), { cancel: !kind })); delete waiting[id]; }
@@ -676,7 +678,7 @@ async function findSpeakers(a16) {
     return a16.slice(Math.round((mid - half) * 16000), Math.round((mid + half) * 16000));
   });
   const f0 = clips.map((c) => (c ? pitch(c, 16000) : 0));
-  const embs = await call('main', 'spk', { clips }, clips.filter(Boolean).map((c) => c.buffer));
+  const embs = await once('spk', { clips }, clips.filter(Boolean).map((c) => c.buffer));
   const lab = cluster(embs);
   speakers = [];
   lab.forEach((k, i) => { (speakers[k] ||= { f0s: [] }); if (f0[i]) speakers[k].f0s.push(f0[i]); segs[i].spk = k; });
@@ -781,7 +783,7 @@ $('start').onclick = async () => {
       bgCache = { mode: 'ai', bg }; a16 = vox; // clean voices help speech and speaker recognition
     }
     mark('asr');
-    const raw = await call('main', 'asr', {
+    const raw = await once('asr', {
       audio: a16.slice(), model: asr,
       language: src === 'auto' ? null : LANGS[src][2], task: direct ? 'translate' : 'transcribe',
     });
@@ -796,7 +798,7 @@ $('start').onclick = async () => {
     if (!direct) {
       const s = src === 'auto' ? guess(out.join(' ')) : src;
       if (src === 'auto') log(`Detected language: ${LANGS[s][0]}`);
-      if (s !== tgt) { mark('mt'); out = await call('main', 'mt', { texts: out, src: LANGS[s][1], tgt: LANGS[tgt][1] }); }
+      if (s !== tgt) { mark('mt'); out = await once('mt', { texts: out, src: LANGS[s][1], tgt: LANGS[tgt][1] }); }
     }
     segs.forEach((c, i) => (c.tr = out[i]));
     editor();
@@ -824,7 +826,7 @@ async function makeVoice(fromStart) {
   try {
     const L = LANGS[$('tgt').value], texts = segs.map((s) => s.tr), kv = pickVoices();
     mark('tts');
-    const vs = kv ? await call('kokoro', 'kokoro', { voices: kv, texts }) : await call('main', 'tts', { model: L[3], dtype: L[4], texts });
+    const vs = kv ? await call('kokoro', 'kokoro', { voices: kv, texts }) : await once('tts', { model: L[3], dtype: L[4], texts });
     if (kv) stop('kokoro', 'done'); // free memory
     mark('mix');
     const mix = new Float32Array(Math.ceil(dur * SR)), bg = await background();
