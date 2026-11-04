@@ -107,6 +107,12 @@ footer{font-size:13px;color:var(--muted)}
                         <option value="onnx-community/whisper-base">Fast (good for English)</option>
             <option value="onnx-community/whisper-small">Accurate (better for non-English, needs a strong computer)</option>
           </select></label>
+        <label class="f">Picture
+          <select id="vd-enh">
+            <option value="none">Keep as it is (fastest)</option>
+            <option value="sharp">Sharper and more colourful (re-encodes, slower)</option>
+            <option value="2k">Sharper, and enlarge to 2K / 1440p (slowest)</option>
+          </select></label>
         <label class="check"><input type="checkbox" id="vd-burn"> Burn subtitles into the video (re-encodes, slower)</label>
         <label class="check"><input type="checkbox" id="vd-review"> Let me check the translation before making the voice</label>
       </div>
@@ -141,6 +147,7 @@ footer{font-size:13px;color:var(--muted)}
 
   <footer>
     <details><summary>Details log</summary><pre class="log" id="vd-log"></pre></details>
+    <p>For AI upscaling to 4K or 8K, drag a finished video onto <b>upscale/upscale.cmd</b> (uses your NVIDIA graphics card).</p>
     <p>All AI models download automatically the first time (about 1.3 GB); after that they load from your browser. Open the page with <b>serve.cmd</b> so the models stay saved. The voice sounds synthetic and lips will not match. The translation and voice models (NLLB, MMS) are licensed for non-commercial use only.</p>
   </footer>
 </div>
@@ -907,13 +914,16 @@ async function buildVideo(wav) {
   const burn = $('burn').checked && info.w > 0;
   if ($('burn').checked && !burn) note('The video size could not be read, so subtitles were not burned in.');
   const ext = (file.name.match(/\.([^.]+)$/) || [, 'mp4'])[1].toLowerCase();
-  const outExt = burn || ['mp4', 'mov', 'm4v'].includes(ext) ? 'mp4' : 'mkv';
+  // Picture: lanczos enlarge (only when smaller than 1440p), contrast-adaptive sharpen, a little more colour
+  const enh = $('enh').value, look = enh === 'none' ? [] : [...(enh === '2k' && info.h && info.h < 1440 ? ['scale=-2:1440:flags=lanczos'] : []), 'cas=0.6', 'eq=contrast=1.05:saturation=1.12'];
+  const outExt = burn || look.length || ['mp4', 'mov', 'm4v'].includes(ext) ? 'mp4' : 'mkv';
   let n = 0;
-  if (burn) {
-    stat('Drawing subtitles…'); n = await subtitlePNGs();
-    await run(['-i', IN(), '-f', 'concat', '-safe', '0', '-i', 'list.txt', '-i', 'a.wav',
-      '-filter_complex', '[0:v][1:v]overlay=0:0:eof_action=pass,format=yuv420p[v]', '-map', '[v]', '-map', '2:a',
-      '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23', '-c:a', 'aac', '-b:a', '160k', '-shortest', 'out.' + outExt], true);
+  if (burn || look.length) {
+    if (burn) { stat('Drawing subtitles…'); n = await subtitlePNGs(); }
+    const chain = (burn ? '[0:v][1:v]overlay=0:0:eof_action=pass' : '[0:v]null') + (look.length ? ',' + look.join(',') : '') + ',format=yuv420p[v]';
+    await run(['-i', IN(), ...(burn ? ['-f', 'concat', '-safe', '0', '-i', 'list.txt'] : []), '-i', 'a.wav',
+      '-filter_complex', chain, '-map', '[v]', '-map', (burn ? '2' : '1') + ':a',
+      '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '21', '-c:a', 'aac', '-b:a', '160k', '-shortest', 'out.' + outExt], true);
   } else {
     await run(['-i', IN(), '-i', 'a.wav', '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '160k', '-shortest', 'out.' + outExt], true);
   }

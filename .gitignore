@@ -1,2 +1,5 @@
 _test*
 *.raw
+upscale/realesrgan/
+upscale/realesrgan.zip
+*-work/
