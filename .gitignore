@@ -7,3 +7,5 @@ upscale/jobs/
 upscale/ffmpeg/
 upscale/ffmpeg.zip
 __pycache__/
+test-results/
+.claude/settings.local.json

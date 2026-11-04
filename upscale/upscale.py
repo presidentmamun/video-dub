@@ -44,9 +44,13 @@ FFMPEG, FFPROBE = find('ffmpeg'), find('ffprobe')
 def download(url, dest_dir, label, log):
     """Download a zip with progress and unpack it into dest_dir."""
     z = dest_dir + '.zip'
-    def hook(n, size, total):
-        if total > 0 and n % 50 == 0:
-            log(f'Setting up {label}: {min(n * size, total) / 1e6:.0f} of {total / 1e6:.0f} MB', min(1, n * size / total))
+    last = [-1]
+    def hook(n, size, total):  # report every 10 %, not every block
+        if total > 0:
+            pct = min(100, n * size * 100 // total) // 10 * 10
+            if pct != last[0]:
+                last[0] = pct
+                log(f'Setting up {label}: {pct}%', pct / 100)
     urllib.request.urlretrieve(url, z, hook)
     with zipfile.ZipFile(z) as f:
         f.extractall(dest_dir)
@@ -187,9 +191,9 @@ def upscale(src, to='4k', model='photo', out=None, log=plain_log, stop=lambda: F
         os.replace(tmp, part)
         done += n
         left = (time.time() - t0) / done * max(0, total - (k + 1) * step)
-        log(f'Upscaling: {min(total, (k + 1) * step)} of {total} frames · about {fmt(left)} left', (k + 1) / n_chunks)
+        log(f'Upscaling: {min(total, (k + 1) * step)} of {total} frames, about {fmt(left)} left', (k + 1) / n_chunks)
 
-    log('Joining the pieces and adding the sound…', None)
+    log('Joining the pieces and adding the sound...', None)
     lst = os.path.join(work, 'list.txt')
     with open(lst, 'w', encoding='utf-8') as f:
         f.writelines(f"file '{p.replace(chr(92), '/')}'\n" for p in parts)
