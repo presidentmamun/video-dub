@@ -284,8 +284,11 @@ const ops = {
     const pipe = await pipeline('translation', 'Xenova/nllb-200-distilled-600M', { device: 'wasm', dtype: 'q8', progress_callback: progress('Translation model') });
     const res = [];
     for (let i = 0; i < texts.length; i++) {
-      const o = await pipe(texts[i], { src_lang: src, tgt_lang: tgt, max_new_tokens: 400 });
-      res.push(o[0].translation_text);
+      // NLLB sometimes drops a sentence when given several at once, so translate them one by one
+      const parts = texts[i].split(/(?<=[.?!।。？！])\s+/).filter((x) => x.trim());
+      const done = [];
+      for (const s of parts) done.push((await pipe(s, { src_lang: src, tgt_lang: tgt, max_new_tokens: 300 }))[0].translation_text.replace(/^[-–—\s]+/, ''));
+      res.push(done.join(' '));
       step('Translating', i + 1, texts.length);
     }
     await pipe.dispose();
@@ -401,7 +404,7 @@ const KOKORO = {
 };
 const KOKORO_NAMES = { am_michael: 'Michael (man, US)', bm_george: 'George (man, UK)', am_fenrir: 'Fenrir (man, US)', af_heart: 'Heart (woman, US)', bf_emma: 'Emma (woman, UK)', af_bella: 'Bella (woman, US)' };
 const ASR_FAST = 'onnx-community/whisper-base', ASR_GOOD = 'onnx-community/whisper-small';
-const MAX_SPEED = 1.5, SR = 24000, SEP_WIN = 120, SEP_MARGIN = 1, SPK_TH = 0.8, MALE_F0 = 165;
+const MAX_SPEED = 1.5, SR = 24000, SEP_WIN = 120, SEP_MARGIN = 1, SPK_TH = 0.6, MALE_F0 = 165;
 const BG_VOL = { none: 0, orig: 15, ai: 100, fast: 100 };
 const STEPS = { audio: 'Read the audio', sep: 'Separate voices from music', asr: 'Recognize speech', spk: 'Find the speakers', mt: 'Translate', tts: 'Make the new voices', mix: 'Mix the audio', video: 'Build the video' };
 
@@ -652,6 +655,17 @@ function cluster(embs) {
     if (bs >= SPK_TH) { for (let i = 0; i < e.length; i++) C[bi][i] += e[i]; return bi; }
     C.push(Float32Array.from(e)); return C.length - 1;
   });
+  // second pass: merge groups whose average voices are still close
+  for (let merged = true; merged;) {
+    merged = false;
+    for (let a = 0; a < C.length && !merged; a++) for (let b = a + 1; b < C.length && !merged; b++) {
+      if (!C[a] || !C[b] || dot(unit(C[a]), unit(C[b])) < SPK_TH) continue;
+      for (let i = 0; i < C[a].length; i++) C[a][i] += C[b][i];
+      C[b] = null; lab.forEach((x, i) => { if (x === b) lab[i] = a; }); merged = true;
+    }
+  }
+  const ids = [...new Set(lab.filter((x) => x >= 0))]; // renumber 0..n-1 in order of appearance
+  lab.forEach((x, i) => { if (x >= 0) lab[i] = ids.indexOf(x); });
   for (let i = 0; i < lab.length; i++) if (lab[i] < 0) lab[i] = lab[i - 1] ?? lab.find((x) => x >= 0) ?? 0; // short lines join a neighbour
   return lab.map((x) => Math.max(0, x));
 }
@@ -789,7 +803,7 @@ $('start').onclick = async () => {
     $('res').hidden = false; refreshSrt();
     if (!hasVoice) { finish(); note(`${LANGS[tgt][0]} has no voice yet. Download the translated subtitles above.`); }
     else if ($('review').checked) { stat('Check the translation below, then press "Make the voice".'); for (const li of $('steps').children) if (li.className === 'run') li.className = 'done'; }
-    else { busy(false); return makeVoice(); }
+    else { busy(false); return makeVoice(true); }
   } catch (e) { fail(e); }
   busy(false);
 };
@@ -802,11 +816,11 @@ function pickVoices() { // English: a Kokoro voice per speaker; others: one MMS 
   return segs.map((s) => per[s.spk]);
 }
 
-async function makeVoice() {
+async function makeVoice(fromStart) {
   busy(true); resetOut(); refreshSrt(); $('err').hidden = true; $('res').hidden = false; $('prog').hidden = false;
   for (const k in stepT) delete stepT[k];
   const isVideo = info.w > 0 || file.type.startsWith('video/');
-  plan(['tts', 'mix', ...(isVideo ? ['video'] : [])]);
+  if (fromStart !== true) plan(['tts', 'mix', ...(isVideo ? ['video'] : [])]);
   try {
     const L = LANGS[$('tgt').value], texts = segs.map((s) => s.tr), kv = pickVoices();
     mark('tts');
