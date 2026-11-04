@@ -27,7 +27,3 @@ python upscale/upscale.py VIDEO --to 4k --model photo   # 2k | 4k | 8k, photo | 
 ```
 
 Or drag a video onto `upscale/upscale.cmd`.
-
-## Licences
-
-NLLB-200 and MMS-TTS are CC-BY-NC-4.0: non-commercial use only.
