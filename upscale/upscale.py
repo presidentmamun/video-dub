@@ -120,13 +120,21 @@ def probe(src):
     return int(s['width']), int(s['height']), s['r_frame_rate'], float(num) / float(den), float(j['format']['duration']), has_audio
 
 
-def encoder():
-    """hevc_nvenc handles up to 8K on RTX cards; fall back to the CPU encoder when NVENC is missing."""
+def encoder(height):
+    """Up to 4K: H.264 at a moderate bitrate, which almost every player can play smoothly.
+    8K: HEVC, because H.264 cannot go wider than 4096. NVENC on the graphics card, CPU encoder as fallback."""
+    hevc = height > 2160
+    rate = {1440: '8M', 2160: '12M'}.get(height, '40M')
+    peak = f'{int(rate[:-1]) * 2}M'
+    name = 'hevc_nvenc' if hevc else 'h264_nvenc'
     try:
-        run([FFMPEG, '-v', 'error', '-f', 'lavfi', '-i', 'color=s=256x256', '-frames:v', '1', '-c:v', 'hevc_nvenc', '-f', 'null', '-'])
-        return ['-c:v', 'hevc_nvenc', '-preset', 'p5', '-rc', 'vbr', '-cq', '20', '-b:v', '0', '-tag:v', 'hvc1'], 'NVIDIA NVENC'
+        run([FFMPEG, '-v', 'error', '-f', 'lavfi', '-i', 'color=s=256x256', '-frames:v', '1', '-c:v', name, '-f', 'null', '-'])
+        return ['-c:v', name, '-preset', 'p5', '-rc', 'vbr', '-b:v', rate, '-maxrate', peak, '-bufsize', peak,
+                *(['-tag:v', 'hvc1'] if hevc else ['-profile:v', 'high'])], f'NVIDIA NVENC {"HEVC" if hevc else "H.264"}'
     except RuntimeError:
-        return ['-c:v', 'libx265', '-preset', 'medium', '-crf', '20', '-tag:v', 'hvc1'], 'CPU (libx265, slow)'
+        cpu = 'libx265' if hevc else 'libx264'
+        return ['-c:v', cpu, '-preset', 'medium', '-crf', '21', '-maxrate', peak, '-bufsize', peak,
+                *(['-tag:v', 'hvc1'] if hevc else [])], f'CPU ({cpu}, slow)'
 
 
 def fmt(sec):
@@ -152,7 +160,7 @@ def upscale(src, to='4k', model='photo', out=None, log=plain_log, stop=lambda: F
     base = os.path.splitext(src)[0]
     out = out or f'{base}-{to}.mp4'
     work = f'{base}-{to}-work'
-    enc, enc_name = encoder()
+    enc, enc_name = encoder(H)
     log(f'{os.path.basename(src)}: {w}x{h}, {fps:.2f} fps, {fmt(dur)}, about {total} frames', None)
     log(f'Plan: Real-ESRGAN {name} x{scale}, resize to {H}p, encode with {enc_name}', None)
     if check:
@@ -164,7 +172,7 @@ def upscale(src, to='4k', model='photo', out=None, log=plain_log, stop=lambda: F
     log(f'Graphics card: {gpu_name}', None)
     step = CHUNK[H]
     secs = step / fps
-    n_chunks = int(-(-dur // secs))
+    n_chunks = -(-total // step)  # by frame count, so the last frame gets its own chunk if needed
     parts, t0, done = [], time.time(), 0
     for k in range(n_chunks):
         if stop():
@@ -178,7 +186,7 @@ def upscale(src, to='4k', model='photo', out=None, log=plain_log, stop=lambda: F
             shutil.rmtree(d, ignore_errors=True)
             os.makedirs(d)
         # -ss before -i is frame-accurate when re-encoding; fps= keeps a constant frame rate
-        run([FFMPEG, '-v', 'error', '-ss', f'{k * secs:.6f}', '-t', f'{secs:.6f}', '-i', src, '-map', '0:v:0',
+        run([FFMPEG, '-v', 'error', '-ss', f'{k * secs:.6f}', '-t', f'{secs + 1 / fps:.6f}', '-i', src, '-map', '0:v:0',
              '-vf', f'fps={rate}', '-frames:v', str(step), os.path.join(fin, '%08d.png')])
         n = len(os.listdir(fin))
         if n == 0:
@@ -200,7 +208,7 @@ def upscale(src, to='4k', model='photo', out=None, log=plain_log, stop=lambda: F
     cmd = [FFMPEG, '-v', 'error', '-y', '-f', 'concat', '-safe', '0', '-i', lst]
     if has_audio:
         cmd += ['-i', src, '-map', '0:v', '-map', '1:a', '-c:a', 'copy']
-    cmd += ['-c:v', 'copy', '-shortest', out]
+    cmd += ['-c:v', 'copy', '-movflags', '+faststart', out]  # no -shortest: audio is often a few ms shorter and would cut the last frame
     try:
         run(cmd)
     except RuntimeError:  # audio codec not allowed in MP4: convert it to AAC
