@@ -5,11 +5,12 @@ for AI upscaling (upscale/upscale.py). Listens on 127.0.0.1 only, so nothing out
 this computer can reach it. Uses only Python's standard library: no pip install needed.
 ffmpeg and Real-ESRGAN are downloaded automatically the first time AI upscaling is used.
 """
-import http.server, json, os, shutil, subprocess, sys, threading, time, urllib.parse, uuid, webbrowser
+import http.server, json, os, re, shutil, subprocess, sys, threading, time, urllib.parse, uuid, webbrowser
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, 'upscale'))
 import upscale as up  # noqa: E402
+import edit as ed  # noqa: E402
 
 PORT = int(os.environ.get('VD_PORT', 8000))
 # websites whose Video Dubbing page may use this helper (besides the page served here); more with VD_ORIGINS="https://a,https://b"
@@ -80,7 +81,7 @@ def status():
     if not up.tool_path():
         need.append('Real-ESRGAN (45-50 MB)')
     sizes = ['2k', '4k'] + (['8k'] if GPU and GPU['vram_gb'] >= 6 else [])  # vram 0 = unknown: no 8K
-    return {'gpu': GPU, 'sizes': sizes if GPU and not blocker else [], 'setup': need, 'blocker': blocker}
+    return {'gpu': GPU, 'sizes': sizes if GPU and not blocker else [], 'setup': need, 'blocker': blocker, 'edit': ed.status()}
 
 
 def start_job(jid, task, name):
@@ -107,6 +108,10 @@ def start_job(jid, task, name):
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
+    # Windows can map .js to text/plain, and browsers refuse such a service worker (coi-sw.js)
+    extensions_map = {**http.server.SimpleHTTPRequestHandler.extensions_map, '.js': 'text/javascript', '.mjs': 'text/javascript',
+                      '.wasm': 'application/wasm', '.onnx': 'application/octet-stream'}
+
     def __init__(self, *a, **k):
         super().__init__(*a, directory=HERE, **k)
 
@@ -150,6 +155,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return False
         return True
 
+    def edit_dir(self, parts):  # /api/edit/<id>/...: the folder that holds one edit's files
+        d = os.path.join(JOBS_DIR, 'e' + parts[2]) if len(parts) > 2 and re.fullmatch(r'[0-9a-f]{12}', parts[2]) else None
+        if not d or not os.path.isdir(d):
+            self.send_json({'error': 'no such edit'}, 404)
+            return None
+        return d
+
     def job(self, parts):
         j = JOBS.get(parts[2]) if len(parts) > 2 else None
         if not j:
@@ -167,6 +179,20 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             if not self.api_ok():
                 return
             return self.send_json(status())
+        if p[1:2] == ['edit'] and p[3:4] == ['probe']:
+            if not self.api_ok():
+                return
+            d = self.edit_dir(p)
+            name = dict(urllib.parse.parse_qsl(u.query)).get('name', '')
+            if not d:
+                return
+            if not ed.NAME_OK.match(name) or not os.path.isfile(os.path.join(d, name)):
+                return self.send_json({'error': 'unknown file'}, 400)
+            try:
+                up.ensure_ffmpeg(lambda *a: None)
+                return self.send_json(ed.probe(os.path.join(d, name)))
+            except Exception as e:  # report it to the page
+                return self.send_json({'error': str(e)[-300:]}, 500)
         if p[1:2] == ['job']:
             j = self.job(p)
             if not j:
@@ -228,6 +254,38 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 out = os.path.join(d, f'result-{height}p.mp4')
                 start_job(jid, lambda log, stop: up.shrink(src, height, out=out, log=log, stop=stop), f'{stem}-{height}p.mp4')
             return self.send_json({'id': jid})
+        if p[1:2] == ['edit']:  # edits: new → files → run (see upscale/edit.py)
+            if p[2:3] == ['new']:
+                eid = uuid.uuid4().hex[:12]
+                os.makedirs(os.path.join(JOBS_DIR, 'e' + eid))
+                return self.send_json({'id': eid})
+            d = self.edit_dir(p)
+            if not d:
+                return
+            if p[3:4] == ['file']:
+                name = q.get('name', '')
+                if not ed.NAME_OK.match(name):
+                    return self.send_json({'error': 'bad file name'}, 400)
+                left = int(self.headers.get('Content-Length', 0))
+                with open(os.path.join(d, name), 'wb') as f:
+                    while left > 0:
+                        chunk = self.rfile.read(min(left, 1 << 20))
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        left -= len(chunk)
+                return self.send_json({'ok': True})
+            if p[3:4] == ['run']:
+                try:
+                    body = json.loads(self.rfile.read(int(self.headers.get('Content-Length', 0))) or b'{}')
+                    args, total = body.get('args'), float(body.get('total') or 0)
+                    out = ed.check(args, d)
+                except (ValueError, TypeError) as e:
+                    return self.send_json({'error': 'The helper refused this edit: ' + str(e)}, 400)
+                jid = uuid.uuid4().hex[:12]
+                start_job(jid, lambda log, stop: ed.run(args, d, total, log, stop), 'edited' + os.path.splitext(out)[1])
+                return self.send_json({'id': jid})
+            return self.send_error(404)
         if p[1:2] == ['job'] and p[3:4] == ['stop']:
             j = self.job(p)
             if j:
@@ -256,6 +314,7 @@ if __name__ == '__main__':
         print(f'Port {PORT} is already in use: Video Dubbing (or another program) is already running.')
         print(f'Close the other window, or open http://localhost:{PORT}/ if it is Video Dubbing.')
         sys.exit(1)
+    threading.Thread(target=ed.encoder, daemon=True).start()  # find the fastest video encoder in the background
     url = f'http://localhost:{PORT}/'
     print(f'Video Dubbing is running at {url}')
     print(f'Graphics card for AI upscaling: {GPU["name"] + " (" + str(GPU["vram_gb"]) + " GB)" if GPU else "none found (browser options still work)"}')

@@ -22,7 +22,7 @@ header p{margin:4px 0 0;color:var(--muted)}
 .drop input{position:absolute;opacity:0;width:1px;height:1px}
 .langs{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:end}
 .langs .arrow{padding-bottom:10px;color:var(--muted)}
-label.f{display:grid;gap:4px;font-size:14px;color:var(--muted);min-width:0}
+.f{display:grid;gap:4px;font-size:14px;color:var(--muted);min-width:0}
 select,input[type=range]{width:100%}
 select{font:inherit;color:var(--fg);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px}
 .hint{font-size:14px;margin:0}.hint.ok{color:var(--ok)}.hint.warn{color:var(--warn)}
@@ -70,6 +70,20 @@ textarea{width:100%;min-height:2.6em;font:inherit;color:var(--fg);background:var
 .row{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px}
 .log{white-space:pre-wrap;font-size:12px;color:var(--muted);max-height:200px;overflow:auto;margin:8px 0 0}
 footer{font-size:13px;color:var(--muted)}
+.card h2 small{text-transform:none;letter-spacing:0;font-weight:400}
+.card input:is([type=text],[type=number]){font:inherit;color:var(--fg);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px;width:100%;min-width:0}
+.card input[type=color]{width:100%;height:40px;padding:2px;border:1px solid var(--line);border-radius:8px;background:var(--card)}
+.card input[type=file]{font-size:14px;max-width:100%}
+.pv{display:grid;gap:8px;justify-items:center}
+.pv canvas{max-width:100%;max-height:60vh;border-radius:8px;background:#000;touch-action:none;cursor:default}
+.pv label{width:100%}
+.grid9{display:grid;grid-template-columns:repeat(3,44px);gap:4px}
+.grid9 button{height:30px;border:1px solid var(--line);background:var(--card);border-radius:6px;cursor:pointer}
+.grid9 button.on{background:var(--accent);border-color:var(--accent)}
+.filerow{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.btn.small{padding:6px 12px;font-size:14px}
+.share select{width:auto}
+.ed-sum{font-size:14px;color:var(--muted);margin:0}
 [hidden]{display:none!important}
 @media (max-width:480px){.langs{grid-template-columns:1fr}.langs .arrow{display:none}}
 @media (prefers-reduced-motion:reduce){.bar i{transition:none}}
@@ -141,6 +155,166 @@ footer{font-size:13px;color:var(--muted)}
     </div>
   </section>
 
+  <section class="card" id="vd-editcard">
+    <h2>4 · Edit and look <small>(optional)</small></h2>
+    <p class="ed-sum" id="vd-edsum"></p>
+    <div class="pv" id="vd-pvw" hidden>
+      <canvas id="vd-pv" width="640" height="360" aria-label="Preview of the changes"></canvas>
+      <label class="f">Preview at <span id="vd-pvt">0:00</span><input type="range" id="vd-pvs" min="0" max="1" step="0.04" value="0"></label>
+      <small class="hint" id="vd-pvhint">The preview shows one frame with your changes. Drag the logo to move it.</small>
+    </div>
+    <p class="hint" id="vd-ednone">Choose a video above to see a preview here.</p>
+
+    <details><summary>Trim, cut and speed</summary><div class="opts">
+      <div class="row">
+        <label class="f">Start at (minutes:seconds)<input type="text" id="vd-tstart" placeholder="0:00" inputmode="decimal"></label>
+        <label class="f">End at<input type="text" id="vd-tend" placeholder="the end" inputmode="decimal"></label>
+      </div>
+      <div class="filerow"><button type="button" class="btn ghost small" id="vd-setstart">Start at the preview frame</button><button type="button" class="btn ghost small" id="vd-setend">End at the preview frame</button></div>
+      <label class="f">Cut out these parts (one per line, like 1:20-1:35)<textarea id="vd-cuts" rows="2" placeholder="1:20-1:35"></textarea></label>
+      <label class="f">Speed<select id="vd-speed"><option value="0.25">0.25× (very slow)</option><option value="0.5">0.5× (slow motion)</option><option value="0.75">0.75×</option><option value="1" selected>1× (normal)</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="2">2×</option><option value="3">3×</option><option value="4">4×</option></select></label>
+      <label class="check"><input type="checkbox" id="vd-reverse"> Play backwards (short videos only, needs a lot of memory)</label>
+    </div></details>
+
+    <details><summary>Shape: crop, flip and turn</summary><div class="opts">
+      <div class="row">
+        <label class="f">Shape<select id="vd-shape"><option value="keep">Keep the shape</option><option value="16:9">16:9 wide (YouTube)</option><option value="9:16">9:16 tall (Reels, Shorts, TikTok)</option><option value="1:1">1:1 square</option><option value="4:5">4:5 (Instagram post)</option><option value="4:3">4:3</option><option value="21:9">21:9 cinema</option></select></label>
+        <label class="f">Which part to keep: <span id="vd-cposv"></span><input type="range" id="vd-cpos" min="0" max="100" value="50"></label>
+      </div>
+      <div class="row">
+        <label class="f">Turn<select id="vd-turn"><option value="0">No turn</option><option value="90">90° to the right</option><option value="270">90° to the left</option><option value="180">180° (upside down)</option></select></label>
+      </div>
+      <label class="check"><input type="checkbox" id="vd-hflip"> Mirror (flip left and right)</label>
+      <label class="check"><input type="checkbox" id="vd-vflip"> Flip top and bottom</label>
+    </div></details>
+
+    <details><summary>Logo</summary><div class="opts">
+      <div class="filerow"><input type="file" id="vd-logo" accept="image/png,image/jpeg,image/webp,image/svg+xml,image/gif"><button type="button" class="btn ghost small" data-clear="logo">Remove</button></div>
+      <small class="hint">A PNG with a transparent background looks best.</small>
+      <div class="row">
+        <div class="f">Where<div class="grid9" id="vd-lgrid">
+          <button type="button" data-ax="0" data-ay="0" aria-label="Top left">↖</button><button type="button" data-ax="0.5" data-ay="0" aria-label="Top middle">↑</button><button type="button" data-ax="1" data-ay="0" aria-label="Top right">↗</button>
+          <button type="button" data-ax="0" data-ay="0.5" aria-label="Middle left">←</button><button type="button" data-ax="0.5" data-ay="0.5" aria-label="Centre">•</button><button type="button" data-ax="1" data-ay="0.5" aria-label="Middle right">→</button>
+          <button type="button" data-ax="0" data-ay="1" aria-label="Bottom left">↙</button><button type="button" data-ax="0.5" data-ay="1" aria-label="Bottom middle">↓</button><button type="button" data-ax="1" data-ay="1" aria-label="Bottom right">↘</button>
+        </div></div>
+        <div class="opts" style="margin:0">
+          <label class="f">Size: <span id="vd-lsizev"></span><input type="range" id="vd-lsize" min="3" max="50" value="14"></label>
+          <label class="f">Space from the edge: <span id="vd-lmarginv"></span><input type="range" id="vd-lmargin" min="0" max="15" value="3"></label>
+          <label class="f">See-through: <span id="vd-lalphav"></span><input type="range" id="vd-lalpha" min="10" max="100" value="100"></label>
+        </div>
+      </div>
+      <label class="f">Show the logo for (seconds, empty = the whole video)<input type="number" id="vd-lsecs" min="0" step="1" placeholder="whole video"></label>
+    </div></details>
+
+    <details><summary>Text: title and moving line</summary><div class="opts">
+      <label class="f">Title<textarea id="vd-ttext" rows="2" placeholder="For example: Iwate BD presents"></textarea></label>
+      <div class="row">
+        <label class="f">Where<select id="vd-tpos"><option value="top">Top</option><option value="middle" selected>Middle</option><option value="bottom">Bottom</option></select></label>
+        <label class="f">Colour<input type="color" id="vd-tcolor" value="#ffffff"></label>
+        <label class="f">Size: <span id="vd-tsizev"></span><input type="range" id="vd-tsize" min="3" max="15" value="7"></label>
+        <label class="f">Show for (seconds, empty = whole)<input type="number" id="vd-tsecs" min="0" step="1" value="5"></label>
+      </div>
+      <label class="check"><input type="checkbox" id="vd-tbox" checked> Dark box behind the title</label>
+      <label class="f">Moving line (scrolls along the bottom, like news)<input type="text" id="vd-ktext" placeholder="Text that moves from right to left"></label>
+      <div class="row">
+        <label class="f">Text colour<input type="color" id="vd-kcolor" value="#ffffff"></label>
+        <label class="f">Bar colour<input type="color" id="vd-kbar" value="#b42318"></label>
+        <label class="f">Speed<select id="vd-kspeed"><option value="16">Slow</option><option value="10" selected>Normal</option><option value="6">Fast</option></select></label>
+      </div>
+    </div></details>
+
+    <details><summary>Subtitles</summary><div class="opts">
+      <small class="hint">When dubbing, tick "Burn subtitles into the video" under More options. Without dubbing, add a subtitle file here.</small>
+      <div class="filerow"><input type="file" id="vd-srt" accept=".srt,.vtt,text/plain"><button type="button" class="btn ghost small" data-clear="srt">Remove</button></div>
+      <div class="row">
+        <label class="f">Size<select id="vd-subsize"><option value="0.04">Small</option><option value="0.05" selected>Medium</option><option value="0.065">Large</option></select></label>
+        <label class="f">Where<select id="vd-subpos"><option value="bottom">Bottom</option><option value="top">Top</option></select></label>
+        <label class="f">Colour<input type="color" id="vd-subcolor" value="#ffffff"></label>
+      </div>
+      <label class="check"><input type="checkbox" id="vd-subbox" checked> Dark box behind the text</label>
+    </div></details>
+
+    <details><summary>Colour</summary><div class="opts">
+      <div class="row">
+        <label class="f">Brightness: <span id="vd-cbriv"></span><input type="range" id="vd-cbri" min="-100" max="100" value="0"></label>
+        <label class="f">Contrast: <span id="vd-cconv"></span><input type="range" id="vd-ccon" min="0" max="200" value="100"></label>
+        <label class="f">Colour strength: <span id="vd-csatv"></span><input type="range" id="vd-csat" min="0" max="300" value="100"></label>
+        <label class="f">Change every colour (hue): <span id="vd-chuev"></span><input type="range" id="vd-chue" min="-180" max="180" value="0"></label>
+        <label class="f">Warm or cool: <span id="vd-cwarmv"></span><input type="range" id="vd-cwarm" min="-100" max="100" value="0"></label>
+        <label class="f">Sharpen: <span id="vd-csharpv"></span><input type="range" id="vd-csharp" min="0" max="100" value="0"></label>
+        <label class="f">Soften (blur): <span id="vd-csoftv"></span><input type="range" id="vd-csoft" min="0" max="100" value="0"></label>
+      </div>
+      <label class="f">Effect or colour model
+        <select id="vd-cfx">
+          <option value="none">None</option>
+          <optgroup label="Looks"><option value="gray">Black and white</option><option value="sepia">Sepia (old photo)</option><option value="invert">Negative</option></optgroup>
+          <optgroup label="Channel order (RGB → …)"><option value="bgr">BGR: red and blue swapped</option><option value="grb">GRB</option><option value="gbr">GBR</option><option value="brg">BRG</option><option value="rbg">RBG</option></optgroup>
+          <optgroup label="One channel"><option value="red">Only red</option><option value="green">Only green</option><option value="blue">Only blue</option></optgroup>
+          <optgroup label="Other colour models (shown as false colour)"><option value="hsv">HSV (hue, saturation, value)</option><option value="hsl">HSL (hue, saturation, lightness)</option><option value="ycbcr">YCbCr / YUV (BT.709)</option><option value="lab">CIE Lab</option></optgroup>
+        </select></label>
+      <small class="hint">A video player always shows RGB, so another colour model appears as false colour: its numbers are shown as red, green and blue.</small>
+      <details><summary>Advanced: colour standard</summary><div class="opts">
+        <div class="row">
+          <label class="f">Colour standard<select id="vd-cstd"><option value="keep">Keep (best for most videos)</option><option value="bt709">BT.709 (HD)</option><option value="bt601">BT.601 (old SD video)</option><option value="bt2020">BT.2020 (UHD TVs, 8-bit)</option></select></label>
+          <label class="f">Range<select id="vd-crange"><option value="keep">Keep</option><option value="tv">Limited (TV, 16–235)</option><option value="pc">Full (PC, 0–255)</option></select></label>
+        </div>
+        <small class="hint">10-bit and HDR are not possible in the browser.</small>
+      </div></details>
+      <div><button type="button" class="btn ghost small" id="vd-creset">Reset colour</button></div>
+    </div></details>
+
+    <details><summary>Blur part of the picture</summary><div class="opts">
+      <small class="hint">Hide a face, a number plate or an old logo. Press "Draw a box", then drag over the preview.</small>
+      <div class="filerow"><button type="button" class="btn ghost small" id="vd-bdraw">Draw a box</button><button type="button" class="btn ghost small" id="vd-bclear">Remove all boxes</button><span class="hint" id="vd-bcount"></span></div>
+      <label class="f">Blur strength: <span id="vd-bstrv"></span><input type="range" id="vd-bstr" min="10" max="100" value="60"></label>
+    </div></details>
+
+    <details><summary>Sound</summary><div class="opts">
+      <label class="f">Main sound<select id="vd-amode"><option value="keep">Keep (the new voice when dubbing)</option><option value="mute">No sound (mute)</option><option value="replace">Replace with a sound file</option></select></label>
+      <div class="filerow" id="vd-afilew"><input type="file" id="vd-afile" accept="audio/*,video/*"><button type="button" class="btn ghost small" data-clear="afile">Remove</button></div>
+      <label class="f">Volume: <span id="vd-avolv"></span><input type="range" id="vd-avol" min="0" max="200" value="100"></label>
+      <label class="f">Remove noise (wind, fan, hiss)<select id="vd-anoise"><option value="">Off</option><option value="light">Light</option><option value="strong">Strong</option></select></label>
+      <label class="check"><input type="checkbox" id="vd-anorm"> Even out the loudness (no very loud or very quiet parts)</label>
+      <b>Background music</b>
+      <div class="filerow"><input type="file" id="vd-music" accept="audio/*"><button type="button" class="btn ghost small" data-clear="music">Remove</button></div>
+      <label class="f">Music volume: <span id="vd-mvolv"></span><input type="range" id="vd-mvol" min="0" max="100" value="25"></label>
+      <label class="check"><input type="checkbox" id="vd-mduck" checked> Lower the music while someone speaks</label>
+      <label class="check"><input type="checkbox" id="vd-mloop" checked> Repeat the music if it is shorter than the video</label>
+    </div></details>
+
+    <details><summary>Motion</summary><div class="opts">
+      <label class="check"><input type="checkbox" id="vd-stab"> Steady a shaky video</label>
+      <label class="f">Smoother motion<select id="vd-smooth"><option value="">Off</option><option value="blend">60 fps, blend frames (quick)</option><option value="motion">60 fps, make new frames (best, very slow)</option></select></label>
+    </div></details>
+
+    <details><summary>Intro and outro</summary><div class="opts">
+      <small class="hint">A video or a picture to play before and after. A picture shows for 3 seconds.</small>
+      <div class="f"><label for="vd-intro">Intro (at the start)</label><span class="filerow"><input type="file" id="vd-intro" accept="video/*,image/*"><button type="button" class="btn ghost small" data-clear="intro">Remove</button></span></div>
+      <div class="f"><label for="vd-outro">Outro (at the end)</label><span class="filerow"><input type="file" id="vd-outro" accept="video/*,image/*"><button type="button" class="btn ghost small" data-clear="outro">Remove</button></span></div>
+    </div></details>
+
+    <details><summary>Made for (size and file)</summary><div class="opts">
+      <div class="row">
+        <label class="f">Made for<select id="vd-preset">
+          <option value="orig">Same size as the video</option>
+          <option value="yt">YouTube 1080p (1920×1080)</option>
+          <option value="shorts">Reels, Shorts, TikTok (1080×1920)</option>
+          <option value="square">Instagram square (1080×1080)</option>
+          <option value="ig45">Instagram post 4:5 (1080×1350)</option>
+          <option value="fb">Facebook 720p (1280×720)</option>
+          <option value="wa">WhatsApp (under 16 MB)</option>
+          <option value="mb">Size limit in MB (choose below)</option>
+        </select></label>
+        <label class="f" id="vd-fitw">If the shape is different<select id="vd-fit"><option value="blur">Blurred background</option><option value="pad">Black bars</option><option value="fill">Fill the screen (cuts the edges)</option></select></label>
+        <label class="f" id="vd-maxmbw">Size limit (MB)<input type="number" id="vd-maxmb" min="1" step="1" value="25"></label>
+        <label class="f">Quality<select id="vd-quality"><option value="fast">Fast</option><option value="small">Smaller file (slower)</option></select></label>
+        <label class="f">Make it with<select id="vd-engine"><option value="auto">Automatic: the fastest way this device has</option><option value="gpu">This browser, graphics card</option><option value="wasm">This browser, processor (works everywhere)</option><option value="helper">The helper on this computer</option></select></label>
+      </div>
+    </div></details>
+    <p class="ed-sum" id="vd-engineinfo"></p>
+    <div><button type="button" class="btn ghost small" id="vd-edreset">Reset all edits</button></div>
+  </section>
+
   <button class="btn big" id="vd-start" disabled>Start</button>
 
   <section class="card" id="vd-prog" hidden>
@@ -160,6 +334,14 @@ footer{font-size:13px;color:var(--muted)}
       <span>Too big to send? Make a smaller copy:</span>
       <button class="btn ghost" data-h="1080">1080p (about 20 MB a minute)</button>
       <button class="btn ghost" data-h="720">720p (about 12 MB a minute)</button>
+    </div>
+    <div class="share" id="vd-more" hidden>
+      <span>Also make, from the frame shown in the player:</span>
+      <button class="btn ghost" data-m="jpg">Picture (.jpg)</button>
+      <button class="btn ghost" data-m="gif">GIF (6 seconds)</button>
+      <button class="btn ghost" data-m="mp3">Sound only (.mp3)</button>
+      <button class="btn ghost" data-m="zip">All frames as pictures (.zip)</button>
+      <select id="vd-zfps" aria-label="How many frames to save"><option value="1">1 frame a second</option><option value="5">5 frames a second</option><option value="all">Every frame (short videos)</option></select>
     </div>
     <ul class="notes" id="vd-notes"></ul>
   </section>
@@ -199,6 +381,7 @@ async function TF() {
   if (!tf) {
     tf = await import(TF_URL);
     tf.env.allowLocalModels = false;
+    if (tf.env.backends?.onnx?.wasm) tf.env.backends.onnx.wasm.numThreads = 1;
     if (!(await canCache())) tf.env.useBrowserCache = false;
   }
   return tf;
@@ -419,7 +602,7 @@ const ops = {
   async sep({ l, r, part, parts }) {
     if (!sess) {
       ort = await import(ORT + 'ort.all.bundle.min.mjs');
-      ort.env.wasm.wasmPaths = ORT;
+      ort.env.wasm.wasmPaths = ORT; ort.env.wasm.numThreads = 1;
       const buf = await fetchModel(SEP_URL, 'Voice/music model');
       sess = await ort.InferenceSession.create(buf, { executionProviders: (await hasGPU()) ? ['webgpu', 'wasm'] : ['wasm'] });
     }
@@ -443,7 +626,7 @@ const MUX_URL = 'https://cdn.jsdelivr.net/npm/mp4-muxer@5.1.3/build/mp4-muxer.mj
 let up = null;
 Object.assign(ops, {
   async srInit({ model, w, h, ow, oh, fps, kbps, codec }) {
-    if (!ort) { ort = await import(ORT + 'ort.all.bundle.min.mjs'); ort.env.wasm.wasmPaths = ORT; }
+    if (!ort) { ort = await import(ORT + 'ort.all.bundle.min.mjs'); ort.env.wasm.wasmPaths = ORT; ort.env.wasm.numThreads = 1; }
     const s = await ort.InferenceSession.create(await fetchModel(model, 'AI picture model'), { executionProviders: ['webgpu'] });
     const { Muxer, ArrayBufferTarget } = await import(MUX_URL);
     const target = new ArrayBufferTarget();
@@ -513,6 +696,22 @@ onmessage = async ({ data: { id, op, args } }) => {
 };
 </script>
 
+<script>
+// coi-sw.js adds two headers to this page inside the browser (COOP/COEP), so the video tool can use every processor core.
+// Works on any web host. Without the file, or in a browser that does not support it, the page simply runs on one core.
+(async () => {
+  const on = (() => { try { return !!localStorage.getItem('vd-mt'); } catch { return false; } })(); // off for now: multi-thread ffmpeg.wasm can hang
+  if (!on || self.crossOriginIsolated || !('serviceWorker' in navigator) || !window.isSecureContext) return;
+  try {
+    await navigator.serviceWorker.register('coi-sw.js');
+    if (navigator.serviceWorker.controller) return; // already handled but still not isolated: this browser cannot be
+    await navigator.serviceWorker.ready;
+    const first = !sessionStorage.getItem('vd-coi');
+    sessionStorage.setItem('vd-coi', '1');
+    if (first && !(document.getElementById('vd-file')?.files.length)) location.reload(); // once, before the user starts
+  } catch {}
+})();
+</script>
 <script type="module">
 // Flow: read audio (ffmpeg) → [split voice/music] → Whisper → join sentences → find speakers → NLLB
 //       → voices (matched to each speaker) → fit timing without changing pitch → mix → build video (ffmpeg)
@@ -555,19 +754,19 @@ const KOKORO_NAMES = { am_michael: 'Michael (man, US)', bm_george: 'George (man,
 const ASR_FAST = 'onnx-community/whisper-base', ASR_GOOD = 'onnx-community/whisper-small';
 const MAX_SPEED = 1.5, SR = 24000, SEP_WIN = 120, SEP_MARGIN = 1, SPK_TH = 0.6, MALE_F0 = 165;
 const BG_VOL = { none: 0, orig: 15, ai: 100, fast: 100 };
-const STEPS = { audio: 'Read the audio', sep: 'Separate voices from music', asr: 'Recognize speech', spk: 'Find the speakers', mt: 'Translate', tts: 'Make the new voices', mix: 'Mix the audio', video: 'Build the video', share: 'Make a smaller copy', pic: 'Improve the picture', up: 'AI upscale' };
+const STEPS = { audio: 'Read the audio', sep: 'Separate voices from music', asr: 'Recognize speech', spk: 'Find the speakers', mt: 'Translate', tts: 'Make the new voices', mix: 'Mix the audio', video: 'Build the video', share: 'Make a smaller copy', pic: 'Improve the picture', up: 'AI upscale', edit: 'Edit the video', more: 'Make the file' };
 
 // ---- form ----
 const names = Object.entries(LANGS).sort((a, b) => a[1][0].localeCompare(b[1][0]));
 $('src').innerHTML = '<option value="auto">Detect automatically</option><option value="multi">Several languages (find each line\'s language)</option>' + names.map(([k, v]) => `<option value="${k}">${v[0]}</option>`).join('');
-$('tgt').innerHTML = '<option value="keep">Keep the original language (only improve the picture)</option>' + names.map(([k, v]) => `<option value="${k}">${v[0]}${v[3] ? '' : ' — subtitles only'}</option>`).join('');
+$('tgt').innerHTML = '<option value="keep">Keep the original language (only edit or improve the video)</option>' + names.map(([k, v]) => `<option value="${k}">${v[0]}${v[3] ? '' : ' — subtitles only'}</option>`).join('');
 $('tgt').value = 'bn';
 function langUI() {
   const t = $('tgt').value, L = LANGS[t];
   if (t === 'keep') {
     $('voice').innerHTML = '<option value="">Not needed</option>';
-    $('hint').className = 'hint'; $('hint').textContent = 'The sound stays the same. Choose how to improve the picture below.';
-    $('start').textContent = 'Improve the picture';
+    $('hint').className = 'hint'; $('hint').textContent = 'The speech is not changed. Choose your changes in steps 3 and 4 below.';
+    $('start').textContent = 'Make the video';
     return;
   }
   $('start').textContent = 'Start dubbing';
@@ -600,8 +799,8 @@ const finish = () => { for (const li of $('steps').children) li.className = 'don
 
 // ---- picture ----
 const picMode = () => document.querySelector('input[name=pic]:checked').value;
-const lookOf = () => (picMode() !== 'quick' ? [] // lanczos enlarge (only when smaller), contrast-adaptive sharpen, a little more colour
-  : [...($('qsize').value === '2k' && info.h && info.h < 1440 ? ['scale=-2:1440:flags=lanczos'] : []), 'cas=0.6', 'eq=contrast=1.05:saturation=1.12']);
+// quick enhance: contrast-adaptive sharpen and a little more colour (the 2K enlarge is part of the size step, see geom)
+const lookFilters = () => (picMode() !== 'quick' ? [] : ['cas=0.6', 'eq=contrast=1.05:saturation=1.12']);
 const isAI = () => picMode() === 'ai' || picMode() === 'bai';
 const SIZE_H = { '2k': 1440, '4k': 2160, '8k': 4320 };
 let pcSizes = [], webSizes = [];
@@ -623,7 +822,7 @@ async function findHelper(quiet) {
   if (!location.protocol.startsWith('http')) { info.textContent = 'Not available here: open the page with serve.cmd to use this computer\'s graphics card.'; return; }
   try {
     const s = await (await api('/api/status')).json();
-    serverOK = true; $('helper').hidden = $('hhow').hidden = true;
+    serverOK = true; $('helper').hidden = $('hhow').hidden = true; helperEdit = s.edit || null; schedule();
     try { localStorage.setItem('vd-helper', '1'); } catch {}
     if (!s.gpu) { info.textContent = 'Not available: no NVIDIA, AMD or Apple graphics was found on this computer.'; return; }
     if (s.blocker) { info.textContent = `${s.gpu.name}: not available yet, ${s.blocker}`; return; }
@@ -810,8 +1009,8 @@ function stop(kind, msg) { // no kind = stop everything
 
 // ---- ffmpeg (input mounted with WORKERFS, so the video is not copied into memory) ----
 const FF = 'https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.15/dist/esm/';
-const CORE = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/esm/';
-let ff, mounted, ffLog = [], ffProg = false;
+const CORE = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/esm/', CORE_MT = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core-mt@0.12.10/dist/esm/';
+let ff, mounted, ffLog = [], ffProg = false, ffNoMT = (() => { try { return !localStorage.getItem('vd-mt'); } catch { return true; } })(); // multi-thread only when asked (vd-mt): it can hang
 async function getFF() {
   if (!ff) {
     stat('Loading the video tool (30 MB)…');
@@ -819,15 +1018,23 @@ async function getFF() {
     const blobURL = async (u, t) => URL.createObjectURL(new Blob([await (await fetch(u)).arrayBuffer()], { type: t }));
     // ffmpeg's own worker must be same-origin: rebuild it as a blob with absolute imports
     const wsrc = (await (await fetch(FF + 'worker.js')).text()).replace(/from "\.\//g, 'from "' + FF);
-    const f = new FFmpeg();
-    f.on('log', ({ message }) => { ffLog.push(message); if (ffLog.length > 40) ffLog.shift(); });
-    f.on('progress', ({ progress }) => { if (ffProg) { bar(progress); stat('Building the video: ' + Math.round(Math.max(0, Math.min(1, progress)) * 100) + '%'); } });
-    await f.load({
-      classWorkerURL: URL.createObjectURL(new Blob([wsrc], { type: 'text/javascript' })),
-      coreURL: await blobURL(CORE + 'ffmpeg-core.js', 'text/javascript'),
-      wasmURL: await blobURL(CORE + 'ffmpeg-core.wasm', 'application/wasm'),
-    });
-    ff = f; mounted = null;
+    const make = async (mt) => {
+      const f = new FFmpeg(), C = mt ? CORE_MT : CORE;
+      f.on('log', ({ message }) => { ffLog.push(message); if (ffLog.length > 200) ffLog.shift(); });
+      f.on('progress', ({ progress }) => { if (ffProg) { bar(progress); stat('Building the video: ' + Math.round(Math.max(0, Math.min(1, progress)) * 100) + '%'); } });
+      await f.load({
+        classWorkerURL: URL.createObjectURL(new Blob([wsrc], { type: 'text/javascript' })),
+        coreURL: await blobURL(C + 'ffmpeg-core.js', 'text/javascript'),
+        wasmURL: await blobURL(C + 'ffmpeg-core.wasm', 'application/wasm'),
+        ...(mt ? { workerURL: await blobURL(C + 'ffmpeg-core.worker.js', 'text/javascript') } : {}),
+      });
+      return f;
+    };
+    // all processor cores when the page is cross-origin isolated (coi-sw.js); otherwise, or if that fails, one core
+    const mt = self.crossOriginIsolated && (navigator.hardwareConcurrency || 1) > 2 && !ffNoMT;
+    let f = null;
+    if (mt) { try { f = await make(true); log('Video tool: multi-thread'); } catch (e) { log('Multi-thread video tool failed, using one core: ' + e.message); } }
+    ff = f || await make(false); mounted = null;
   }
   if (mounted !== file) {
     if (mounted) await ff.unmount('/in').catch(() => {});
@@ -841,7 +1048,11 @@ const IN = () => '/in/' + file.name;
 async function run(args, prog = false) {
   const f = await getFF();
   ffLog = []; ffProg = prog;
-  const code = await f.exec(args);
+  let code;
+  try { code = await f.exec(args); } catch (e) { // the tool crashed: start a fresh copy next time
+    ffProg = false; try { f.terminate(); } catch {} if (ff === f) { ff = null; mounted = null; }
+    throw new Error('The video tool stopped (' + (e && e.message || e) + '). Press the button again; if it happens again, the video may be too big for the browser.');
+  }
   ffProg = false;
   if (code !== 0) throw new Error('The video tool failed: ' + ffLog.slice(-3).join(' | '));
 }
@@ -930,6 +1141,7 @@ async function setFile() {
   $('finfo').textContent = (file.size / 1e6).toFixed(1) + ' MB';
   info = await meta(file);
   if (info.w) $('finfo').textContent += ` · ${info.w}×${info.h}` + (isFinite(info.d) ? ` · ${(info.d / 60).toFixed(1)} min` : '');
+  pvLoad();
 }
 $('file').onchange = setFile;
 setTimeout(() => { if ($('file').files[0]) setFile(); });
@@ -943,11 +1155,12 @@ drop.addEventListener('drop', (e) => {
 
 function busy(b) {
   running = b;
+  if (b) cancelled = false;
   $('start').disabled = b || !file;
   $('voicebtn').disabled = b || !segs.length || !$('voice').value;
   $('file').disabled = b; $('stop').hidden = !b;
 }
-$('stop').onclick = () => { if (aiJob) api('/api/job/' + aiJob + '/stop', { method: 'POST' }); stop(null, 'Cancelled.'); };
+$('stop').onclick = () => { cancelled = true; if (aiJob) api('/api/job/' + aiJob + '/stop', { method: 'POST' }); stop(null, 'Cancelled.'); };
 function fail(e) {
   console.error(e);
   $('err').textContent = e.cancel ? 'Cancelled.' : 'Something went wrong: ' + e.message;
@@ -1244,7 +1457,7 @@ async function makeVoice(fromStart) {
     finish(); log('Done.');
   } catch (e) { fail(e); }
   busy(false);
-  $('share').hidden = !lastOut;
+  $('share').hidden = $('more').hidden = !lastOut;
 }
 $('voicebtn').onclick = makeVoice;
 
@@ -1277,29 +1490,32 @@ $('share').addEventListener('click', async (e) => {
   busy(false);
 });
 
-async function pictureOnly() { // no dubbing: only improve the picture of the chosen video
-  const mode = picMode();
+async function pictureOnly() { // no dubbing: edit and/or improve the picture of the chosen video
+  const mode = picMode(), ai = mode === 'ai' || mode === 'bai', ed = editsOn() || !!srtSegs;
   $('err').hidden = true; $('prog').hidden = false; $('edit').hidden = true;
-  if (mode === 'none') { $('err').textContent = 'Choose "Quick enhance" or "AI upscale" under Picture quality.'; $('err').hidden = false; return; }
-  if (!info.w) { $('err').textContent = 'This file has no picture to improve.'; $('err').hidden = false; return; }
+  const say = (t) => { $('err').textContent = t; $('err').hidden = false; };
+  if (!ed && !ai) return say('Nothing to do yet: choose your changes under "4 · Edit and look", or a picture improvement under "3 · Picture quality".');
+  if (!info.w) return say('This file has no picture to edit.');
   busy(true); resetOut(); $('res').hidden = false;
+  for (const k in stepT) delete stepT[k];
   const name = file.name.replace(/\.[^.]+$/, '');
-  plan([mode === 'ai' || mode === 'bai' ? 'up' : 'pic']);
+  plan([...(ed ? ['edit'] : []), ...(ai ? ['up'] : [])]);
   try {
-    if (mode === 'ai' || mode === 'bai') await upscaleAny(file, file.name);
-    else {
-      mark('pic');
-      await run(['-i', IN(), '-vf', lookOf().join(',') + ',format=yuv420p', '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '21', '-c:a', 'aac', '-b:a', '160k', 'out.mp4'], true);
-      const data = await ff.readFile('out.mp4'); await ff.deleteFile('out.mp4');
-      const out = new Blob([data.buffer], { type: 'video/mp4' });
-      lastOut = { blob: out, name: name + '-enhanced.mp4' };
-      const a = addOut(out, name + '-enhanced.mp4', 'Video', false);
+    let src = file, nm = file.name;
+    if (ed) {
+      mark('edit');
+      const r = await render({ subs: srtSegs });
+      nm = name + '-edited.' + r.ext; src = r.blob;
+      lastOut = { blob: r.blob, name: nm };
+      const a = addOut(r.blob, nm, (ai ? 'Video before AI' : 'Video') + `, ${(r.blob.size / 1e6).toFixed(1)} MB`, ai);
+      $('dl').prepend(a);
       $('player').innerHTML = `<video controls src="${a.href}"></video>`;
     }
+    if (ai) await upscaleAny(src, nm);
     finish(); log('Done.');
   } catch (e) { fail(e); }
   busy(false);
-  $('share').hidden = !lastOut;
+  $('share').hidden = $('more').hidden = !lastOut;
 }
 
 // ---- video ----
@@ -1309,52 +1525,971 @@ function wrap(g, text, max) {
   if (cur) lines.push(cur);
   return lines;
 }
-async function subtitlePNGs() { // the browser draws the text, so every script (Bengali, Arabic …) shapes correctly
-  const W = info.w, H = info.h, cv = document.createElement('canvas'); cv.width = W; cv.height = H;
-  const g = cv.getContext('2d'), fs = Math.max(16, Math.round(H * 0.05)), lh = fs * 1.35;
-  const png = async () => new Uint8Array(await (await new Promise((r) => cv.toBlob(r, 'image/png'))).arrayBuffer());
-  const f = await getFF();
-  await f.writeFile('b.png', await png());
-  let list = 'ffconcat version 1.0\n', t = 0;
-  for (let i = 0; i < segs.length; i++) {
-    const s = segs[i], e = Math.max(s.e, s.s + 0.3);
-    if (s.s > t + 0.01) list += `file b.png\nduration ${(s.s - t).toFixed(3)}\n`;
-    g.clearRect(0, 0, W, H);
-    g.font = `600 ${fs}px system-ui,"Segoe UI","Noto Sans Bengali","Nirmala UI",sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
-    const lines = wrap(g, s.tr, W * 0.9), top = H - fs * 0.8 - lines.length * lh;
-    const bw = Math.min(W, Math.max(...lines.map((l) => g.measureText(l).width)) + fs);
-    g.fillStyle = 'rgba(0,0,0,.6)'; g.fillRect((W - bw) / 2, top - fs * 0.2, bw, lines.length * lh + fs * 0.4);
-    g.fillStyle = '#fff'; lines.forEach((l, j) => g.fillText(l, W / 2, top + lh * (j + 0.5)));
-    await f.writeFile(`s${i}.png`, await png());
-    list += `file s${i}.png\nduration ${(e - Math.max(s.s, t)).toFixed(3)}\n`;
-    t = Math.max(t, e);
+const FONT = (px, w = 600) => `${w} ${px}px system-ui,"Segoe UI","Noto Sans Bengali","Nirmala UI",sans-serif`;
+const canvas = (w, h) => Object.assign(document.createElement('canvas'), { width: Math.max(1, Math.round(w)), height: Math.max(1, Math.round(h)) });
+const pngOf = async (cv) => new Uint8Array(await (await new Promise((r) => cv.toBlob(r, 'image/png'))).arrayBuffer());
+function drawSub(g, text, W, H) { // one subtitle at full size; the style comes from the Subtitles options
+  const fs = Math.max(16, Math.round(Math.min(W, H) * +$('subsize').value)), lh = fs * 1.35, box = $('subbox').checked;
+  g.save(); g.font = FONT(fs); g.textAlign = 'center'; g.textBaseline = 'middle';
+  const lines = String(text).split('\n').flatMap((l) => wrap(g, l, W * 0.9)), top = $('subpos').value === 'top' ? fs * 0.8 : H - fs * 0.8 - lines.length * lh;
+  const bw = Math.min(W, Math.max(...lines.map((l) => g.measureText(l).width)) + fs);
+  if (box) { g.fillStyle = 'rgba(0,0,0,.6)'; g.fillRect((W - bw) / 2, top - fs * 0.2, bw, lines.length * lh + fs * 0.4); }
+  else { g.shadowColor = 'rgba(0,0,0,.9)'; g.shadowBlur = fs * 0.2; }
+  g.fillStyle = $('subcolor').value; lines.forEach((l, j) => g.fillText(l, W / 2, top + lh * (j + 0.5)));
+  g.restore();
+}
+async function subtitlePNGs(list, W, H, B) { // the browser draws the text, so every script (Bengali, Arabic …) shapes correctly
+  const cv = canvas(W, H), g = cv.getContext('2d');
+  await B.write('b.png', await pngOf(cv));
+  let txt = 'ffconcat version 1.0\n', t = 0;
+  for (let i = 0; i < list.length; i++) {
+    const s = list[i], e = Math.max(s.e, s.s + 0.3);
+    if (e <= t) continue;
+    if (s.s > t + 0.01) txt += `file b.png\nduration ${(s.s - t).toFixed(3)}\n`;
+    g.clearRect(0, 0, W, H); drawSub(g, s.tr, W, H);
+    await B.write(`s${i}.png`, await pngOf(cv));
+    txt += `file s${i}.png\nduration ${(e - Math.max(s.s, t)).toFixed(3)}\n`;
+    t = e;
   }
-  list += 'file b.png\nduration 1\nfile b.png\n';
-  await f.writeFile('list.txt', new TextEncoder().encode(list));
-  return segs.length;
+  txt += 'file b.png\nduration 1\nfile b.png\n';
+  await B.write('list.txt', new TextEncoder().encode(txt));
 }
 async function buildVideo(wav) {
-  const f = await getFF();
-  await f.writeFile('a.wav', new Uint8Array(await wav.arrayBuffer()));
   const burn = $('burn').checked && info.w > 0;
   if ($('burn').checked && !burn) note('The video size could not be read, so subtitles were not burned in.');
-  const ext = (file.name.match(/\.([^.]+)$/) || [, 'mp4'])[1].toLowerCase();
-  const look = lookOf();
-  const outExt = burn || look.length || ['mp4', 'mov', 'm4v'].includes(ext) ? 'mp4' : 'mkv';
-  let n = 0;
-  if (burn || look.length) {
-    if (burn) { stat('Drawing subtitles…'); n = await subtitlePNGs(); }
-    const chain = (burn ? '[0:v][1:v]overlay=0:0:eof_action=pass' : '[0:v]null') + (look.length ? ',' + look.join(',') : '') + ',format=yuv420p[v]';
-    await run(['-i', IN(), ...(burn ? ['-f', 'concat', '-safe', '0', '-i', 'list.txt'] : []), '-i', 'a.wav',
-      '-filter_complex', chain, '-map', '[v]', '-map', (burn ? '2' : '1') + ':a',
-      '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '21', '-c:a', 'aac', '-b:a', '160k', '-shortest', 'out.' + outExt], true);
-  } else {
+  if (burn || editsOn()) { const r = await render({ wav, subs: burn ? segs : null }); return [r.blob, r.ext]; }
+  const f = await getFF();
+  await f.writeFile('a.wav', new Uint8Array(await wav.arrayBuffer()));
+  try {
+    const ext = (file.name.match(/\.([^.]+)$/) || [, 'mp4'])[1].toLowerCase(), outExt = ['mp4', 'mov', 'm4v'].includes(ext) ? 'mp4' : 'mkv';
     await run(['-i', IN(), '-i', 'a.wav', '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '160k', '-shortest', 'out.' + outExt], true);
-  }
-  const data = await f.readFile('out.' + outExt);
-  for (const x of ['a.wav', 'out.' + outExt, 'list.txt', 'b.png', ...Array.from({ length: n }, (_, i) => `s${i}.png`)]) await f.deleteFile(x).catch(() => {});
-  return [new Blob([data.buffer], { type: outExt === 'mp4' ? 'video/mp4' : 'video/x-matroska' }), outExt];
+    const data = await f.readFile('out.' + outExt); await f.deleteFile('out.' + outExt).catch(() => {});
+    return [new Blob([data.buffer], { type: outExt === 'mp4' ? 'video/mp4' : 'video/x-matroska' }), outExt];
+  } finally { await f.deleteFile('a.wav').catch(() => {}); }
 }
+
+// ---- step 4: edit and look. One ffmpeg run does every change; the preview draws the same steps on a canvas ----
+const evn = (x) => Math.max(2, Math.round(x / 2) * 2);
+const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
+const num = (id, d = 0) => { const v = parseFloat($(id).value); return isFinite(v) ? v : d; };
+const mmss = (t) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`;
+function tsec(s) { // "1:20.5", "80" or "0:01:20" → seconds; empty → null; bad → NaN
+  s = String(s ?? '').trim().replace(',', '.');
+  if (!s) return null;
+  const p = s.split(':').map(Number);
+  return p.some((x) => !isFinite(x) || x < 0) ? NaN : p.reduce((a, x) => a * 60 + x, 0);
+}
+const PRESETS = { orig: null, yt: { w: 1920, h: 1080 }, shorts: { w: 1080, h: 1920 }, square: { w: 1080, h: 1080 }, ig45: { w: 1080, h: 1350 },
+  fb: { w: 1280, h: 720 }, wa: { limit: 1280, mb: 15 }, mb: { mb: 0 } };
+const fileOf = (id) => $(id).files[0] || null;
+let logoImg = null, logoURL = null, logoPos = { ax: 1, ay: 0 }, boxes = [], srtSegs = null;
+
+function edits() {
+  const cuts = [];
+  for (const line of $('cuts').value.split('\n')) {
+    const m = line.split(/\s*[-–—]\s*/);
+    if (m.length !== 2) continue;
+    const a = tsec(m[0]), b = tsec(m[1]);
+    if (a >= 0 && b > a) cuts.push([a, b]);
+  }
+  const end = tsec($('tend').value), amode = $('amode').value;
+  return {
+    start: tsec($('tstart').value) || 0, end: end > 0 ? end : null, cuts, speed: +$('speed').value, reverse: $('reverse').checked,
+    shape: $('shape').value, cpos: num('cpos', 50) / 100, turn: +$('turn').value, hflip: $('hflip').checked, vflip: $('vflip').checked,
+    logo: logoImg ? { img: logoImg, size: num('lsize', 14) / 100, margin: num('lmargin', 3) / 100, alpha: num('lalpha', 100) / 100, ...logoPos, secs: num('lsecs', 0) } : null,
+    title: $('ttext').value.trim() ? { text: $('ttext').value.trim(), pos: $('tpos').value, color: $('tcolor').value, size: num('tsize', 7) / 100, secs: num('tsecs', 0), box: $('tbox').checked } : null,
+    ticker: $('ktext').value.trim() ? { text: $('ktext').value.trim(), color: $('kcolor').value, bar: $('kbar').value, secs: +$('kspeed').value } : null,
+    color: { bri: num('cbri'), con: num('ccon', 100), sat: num('csat', 100), hue: num('chue'), warm: num('cwarm'), fx: $('cfx').value },
+    sharp: num('csharp'), soft: num('csoft'), std: $('cstd').value, range: $('crange').value,
+    boxes, bstr: num('bstr', 60),
+    amode: amode === 'replace' && !fileOf('afile') ? 'keep' : amode, afile: fileOf('afile'), vol: num('avol', 100), noise: $('anoise').value, norm: $('anorm').checked,
+    music: fileOf('music'), mvol: num('mvol', 25) / 100, duck: $('mduck').checked, mloop: $('mloop').checked,
+    stab: $('stab').checked, smooth: $('smooth').value, intro: fileOf('intro'), outro: fileOf('outro'),
+    preset: $('preset').value, fit: $('fit').value, maxmb: num('maxmb', 25), quality: $('quality').value,
+    look: lookFilters(), look2k: picMode() === 'quick' && $('qsize').value === '2k',
+  };
+}
+const colorId = (c) => !c.bri && c.con === 100 && c.sat === 100 && !c.hue && !c.warm && c.fx === 'none';
+function summary(e) {
+  const on = [];
+  if (e.start > 0 || e.end != null || e.cuts.length) on.push('trim');
+  if (e.speed !== 1) on.push(`speed ${e.speed}×`);
+  if (e.reverse) on.push('backwards');
+  if (e.shape !== 'keep') on.push(`shape ${e.shape}`);
+  if (e.turn || e.hflip || e.vflip) on.push('flip or turn');
+  if (e.logo) on.push('logo');
+  if (e.title) on.push('title');
+  if (e.ticker) on.push('moving line');
+  if (srtSegs) on.push('subtitles from a file');
+  if (!colorId(e.color) || e.sharp || e.soft) on.push('colour');
+  if (e.std !== 'keep' || e.range !== 'keep') on.push('colour standard');
+  if (e.boxes.length) on.push('blur');
+  if (e.amode !== 'keep' || e.vol !== 100 || e.noise || e.norm || e.music) on.push('sound');
+  if (e.stab) on.push('steady');
+  if (e.smooth) on.push('60 fps');
+  if (e.intro || e.outro) on.push('intro or outro');
+  if (e.preset !== 'orig') on.push($('preset').selectedOptions[0].text.replace(/ \(.*/, ''));
+  return on;
+}
+const editsOn = () => summary(edits()).filter((x) => x !== 'subtitles from a file').length > 0 || picMode() === 'quick';
+
+// size steps: crop to a shape → turn → (quick 2K) → the size the platform needs. Same numbers for the preview and ffmpeg.
+function geom(e, W0, H0) {
+  let cw = W0 - (W0 % 2), ch = H0 - (H0 % 2), cx = 0, cy = 0;
+  if (e.shape !== 'keep') {
+    const [p, q] = e.shape.split(':').map(Number), A = p / q;
+    if (W0 / H0 > A) { cw = Math.min(cw, evn(H0 * A)); cx = Math.floor((W0 - cw) * e.cpos / 2) * 2; }
+    else { ch = Math.min(ch, evn(W0 / A)); cy = Math.floor((H0 - ch) * e.cpos / 2) * 2; }
+  }
+  const crop = { cw, ch, cx, cy, on: cw !== W0 || ch !== H0 };
+  const side = e.turn % 180 !== 0;
+  let w = side ? ch : cw, h = side ? cw : ch, fit = null, scale = false;
+  if (e.look2k && h < 1440) { w = evn(w * 1440 / h); h = 1440; scale = true; }
+  const P = PRESETS[e.preset];
+  if (P && P.w) { if (P.w !== w || P.h !== h) { fit = e.fit; } w = P.w; h = P.h; }
+  else if (P && P.limit && Math.max(w, h) > P.limit) { const k = P.limit / Math.max(w, h); w = evn(w * k); h = evn(h * k); scale = true; }
+  return { crop, W: w, H: h, fit, scale };
+}
+function keepRanges(e, D) { // the parts of the original that stay, in seconds
+  let r = [[Math.max(0, e.start || 0), Math.min(D, e.end ?? D)]];
+  for (const [c0, c1] of [...e.cuts].sort((x, y) => x[0] - y[0])) {
+    r = r.flatMap(([s, t]) => (c1 <= s || c0 >= t ? [[s, t]] : [[s, c0], [c1, t]]));
+  }
+  return r.filter(([s, t]) => t - s > 0.05);
+}
+
+// ---- colour: every colour change is one function; ffmpeg gets it as a 3D table (lut3d), the preview runs it per pixel ----
+const Y709 = (r, g, b) => 0.2126 * r + 0.7152 * g + 0.0722 * b;
+function hsvOf(r, g, b, light) {
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+  let h = 0;
+  if (d > 1e-6) h = (mx === r ? ((g - b) / d + 6) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4) / 6;
+  if (!light) return [h, mx ? d / mx : 0, mx];
+  const l = (mx + mn) / 2;
+  return [h, d < 1e-6 ? 0 : d / (1 - Math.abs(2 * l - 1)), l];
+}
+function labOf(r, g, b) {
+  const lin = (c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  const R = lin(r), G = lin(g), B = lin(b);
+  const x = (0.4124 * R + 0.3576 * G + 0.1805 * B) / 0.95047, y = 0.2126 * R + 0.7152 * G + 0.0722 * B, z = (0.0193 * R + 0.1192 * G + 0.9505 * B) / 1.08883;
+  const f = (t) => (t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116);
+  const L = 116 * f(y) - 16, A = 500 * (f(x) - f(y)), Bb = 200 * (f(y) - f(z));
+  return [L / 100, A / 255 + 0.5, Bb / 255 + 0.5];
+}
+const FX = {
+  none: (r, g, b) => [r, g, b],
+  gray: (r, g, b) => { const y = Y709(r, g, b); return [y, y, y]; },
+  sepia: (r, g, b) => [0.393 * r + 0.769 * g + 0.189 * b, 0.349 * r + 0.686 * g + 0.168 * b, 0.272 * r + 0.534 * g + 0.131 * b],
+  invert: (r, g, b) => [1 - r, 1 - g, 1 - b],
+  bgr: (r, g, b) => [b, g, r], grb: (r, g, b) => [g, r, b], gbr: (r, g, b) => [g, b, r], brg: (r, g, b) => [b, r, g], rbg: (r, g, b) => [r, b, g],
+  red: (r) => [r, 0, 0], green: (r, g) => [0, g, 0], blue: (r, g, b) => [0, 0, b],
+  hsv: (r, g, b) => hsvOf(r, g, b, false), hsl: (r, g, b) => hsvOf(r, g, b, true),
+  ycbcr: (r, g, b) => { const y = Y709(r, g, b); return [y, (b - y) / 1.8556 + 0.5, (r - y) / 1.5748 + 0.5]; },
+  lab: labOf,
+};
+function colorFn(c) { // (r, g, b in 0..1) → [r, g, b]
+  const B = c.bri / 100 * 0.3, C = c.con / 100, S = c.sat / 100, Wm = c.warm / 100 * 0.12, fx = FX[c.fx] || FX.none;
+  const th = c.hue * Math.PI / 180, cs = Math.cos(th), sn = Math.sin(th);
+  const M = [0.213 + cs * 0.787 - sn * 0.213, 0.715 - cs * 0.715 - sn * 0.715, 0.072 - cs * 0.072 + sn * 0.928, // hue turn around grey (as CSS hue-rotate)
+    0.213 - cs * 0.213 + sn * 0.143, 0.715 + cs * 0.285 + sn * 0.140, 0.072 - cs * 0.072 - sn * 0.283,
+    0.213 - cs * 0.213 - sn * 0.787, 0.715 - cs * 0.715 + sn * 0.715, 0.072 + cs * 0.928 + sn * 0.072];
+  const cl = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
+  return (r, g, b) => {
+    r = (r - 0.5) * C + 0.5 + B + Wm; g = (g - 0.5) * C + 0.5 + B; b = (b - 0.5) * C + 0.5 + B - Wm;
+    const y = Y709(r, g, b);
+    r = y + (r - y) * S; g = y + (g - y) * S; b = y + (b - y) * S;
+    if (th) [r, g, b] = [M[0] * r + M[1] * g + M[2] * b, M[3] * r + M[4] * g + M[5] * b, M[6] * r + M[7] * g + M[8] * b];
+    const o = fx(cl(r), cl(g), cl(b));
+    return [cl(o[0]), cl(o[1]), cl(o[2])];
+  };
+}
+function lutData(c) { // the colour table: red changes fastest, then green, then blue (the .cube order)
+  const fn = colorFn(c), N = ['hsv', 'hsl'].includes(c.fx) ? 65 : 33, f = new Float32Array(N * N * N * 3);
+  let i = 0;
+  for (let b = 0; b < N; b++) for (let g = 0; g < N; g++) for (let r = 0; r < N; r++) { const o = fn(r / (N - 1), g / (N - 1), b / (N - 1)); f[i++] = o[0]; f[i++] = o[1]; f[i++] = o[2]; }
+  return { N, f, data: Uint8Array.from(f, (x) => Math.round(x * 255)) };
+}
+function cube(c) { // .cube text for ffmpeg; a finer table for the models with sharp jumps (hue wraps from 1 to 0)
+  const { N, f } = lutData(c), out = [`LUT_3D_SIZE ${N}`];
+  for (let i = 0; i < f.length; i += 3) out.push(`${f[i].toFixed(5)} ${f[i + 1].toFixed(5)} ${f[i + 2].toFixed(5)}`);
+  return out.join('\n') + '\n';
+}
+
+// ---- pictures laid over the video, drawn at the final size ----
+function logoLayer(e, W, H) {
+  if (!e.logo) return null;
+  const L = e.logo, img = L.img, nw = img.naturalWidth || 300, nh = img.naturalHeight || nw;
+  const lw = Math.max(8, Math.round(W * L.size)), lh = Math.max(4, Math.round(lw * nh / nw));
+  const cv = canvas(lw, lh), g = cv.getContext('2d');
+  g.globalAlpha = L.alpha; g.imageSmoothingQuality = 'high'; g.drawImage(img, 0, 0, lw, lh);
+  const m = Math.round(Math.min(W, H) * L.margin);
+  return { cv, x: Math.round(clamp(m + (W - lw - 2 * m) * L.ax, 0, Math.max(0, W - lw))), y: Math.round(clamp(m + (H - lh - 2 * m) * L.ay, 0, Math.max(0, H - lh))) };
+}
+function titleLayer(e, W, H) {
+  if (!e.title) return null;
+  const T = e.title, cv = canvas(W, H), g = cv.getContext('2d'), fs = Math.max(14, Math.round(Math.min(W, H) * T.size)), lh = fs * 1.25;
+  g.font = FONT(fs, 700); g.textAlign = 'center'; g.textBaseline = 'middle';
+  const lines = T.text.split('\n').flatMap((l) => wrap(g, l, W * 0.9)), bh = lines.length * lh;
+  const top = T.pos === 'top' ? H * 0.08 : T.pos === 'bottom' ? H * 0.9 - bh : (H - bh) / 2;
+  if (T.box) {
+    const bw = Math.min(W, Math.max(...lines.map((l) => g.measureText(l).width)) + fs * 1.2);
+    g.fillStyle = 'rgba(0,0,0,.55)'; g.fillRect((W - bw) / 2, top - fs * 0.3, bw, bh + fs * 0.6);
+  } else { g.shadowColor = 'rgba(0,0,0,.85)'; g.shadowBlur = fs * 0.25; }
+  g.fillStyle = T.color; lines.forEach((l, j) => g.fillText(l, W / 2, top + lh * (j + 0.5)));
+  return cv;
+}
+function tickerLayer(e, W, H) { // a strip of text; ffmpeg draws the bar and moves the strip from right to left
+  if (!e.ticker) return null;
+  const K = e.ticker, fs = Math.max(14, Math.round(Math.min(W, H) * 0.045)), bh = evn(fs * 1.7), pad = fs;
+  const m = canvas(1, 1).getContext('2d'); m.font = FONT(fs, 600);
+  const cv = canvas(Math.min(16000, Math.ceil(m.measureText(K.text).width) + 2 * pad), bh), g = cv.getContext('2d');
+  g.font = FONT(fs, 600); g.textBaseline = 'middle'; g.fillStyle = K.color; g.fillText(K.text, pad, bh / 2);
+  return { cv, y: H - bh, h: bh, speed: Math.round(W / K.secs) };
+}
+
+// ---- the edit recipe (ffmpeg arguments) and the three ways to make it ----
+// 1. the helper on this PC: native ffmpeg, graphics card encoder (NVENC, AMF, Quick Sync, VideoToolbox) or all CPU cores
+// 2. this browser's graphics card: WebCodecs decode → canvas/WebGL → WebCodecs H.264 encode; ffmpeg only does the sound
+// 3. this browser's ffmpeg (multi-thread when the page is cross-origin isolated)
+const extOf = (f) => (f.name.match(/\.[a-z0-9]{1,5}$/i) || ['.bin'])[0].toLowerCase();
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let cancelled = false;
+const checkCancel = () => { if (cancelled) throw Object.assign(new Error('Cancelled.'), { cancel: true }); };
+function parseProbe(t) {
+  const m = probe();
+  m.audio = /Stream #\d+:\d+.*: Audio:/.test(t);
+  const c = t.match(/Video: [^\n]*?\b(?:yuv|nv)\w*\(([^)]*)\)/);
+  m.tags = c ? c[1] : '';
+  return m;
+}
+async function probeFile(path) { ffLog = []; await ff.exec(['-hide_banner', '-i', path]); return parseProbe(ffLog.join('\n')); }
+const atempo = (s) => { const o = []; while (s < 0.5) { o.push('atempo=0.5'); s /= 0.5; } while (s > 2) { o.push('atempo=2'); s /= 2; } o.push(`atempo=${s.toFixed(4)}`); return o.join(','); };
+const CS = { bt709: ['bt709', 'bt709', 'bt709', 'bt709'], bt601: ['bt601-6-525', 'smpte170m', 'smpte170m', 'smpte170m'], bt2020: ['bt2020', 'bt2020nc', 'bt2020', 'bt2020-10'] };
+const EXTRAS = (e) => [['music', e.music], ['rep', e.amode === 'replace' ? e.afile : null], ['intro', e.intro], ['outro', e.outro]].filter((x) => x[1]);
+
+// backends: where the files live and how ffmpeg runs
+async function wasmBackend(e) {
+  const f = await getFF(), names = {}, extra = [], tmp = [];
+  for (const [k, fl] of EXTRAS(e)) { names[k] = k + extOf(fl); extra.push({ name: names[k], data: fl }); }
+  await f.unmount('/ex').catch(() => {});
+  await f.createDir('/ex').catch(() => {});
+  if (extra.length) await f.mount('WORKERFS', { blobs: extra }, '/ex');
+  return {
+    main: IN(), ex: (k) => (names[k] ? '/ex/' + names[k] : null), probe: probeFile,
+    write: async (n, d) => { await f.writeFile(n, d instanceof Blob ? new Uint8Array(await d.arrayBuffer()) : d); tmp.push(n); },
+    run: async (args, out, prog = true) => { tmp.push(out); await run(args, prog); return f.readFile(out); },
+    close: async () => { for (const x of tmp) await f.deleteFile(x).catch(() => {}); await f.unmount('/ex').catch(() => {}); },
+  };
+}
+async function helperBackend(e) {
+  const j = await (await api('/api/edit/new', { method: 'POST' })).json();
+  if (!j.id) throw new Error(j.error || 'The helper could not start the edit.');
+  const up = async (name, data) => {
+    const r = await api(`/api/edit/${j.id}/file?name=${encodeURIComponent(name)}`, { method: 'POST', body: data });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Could not send a file to the helper.');
+  };
+  stat('Sending the video to the helper…');
+  const main = 'main' + extOf(file), names = {};
+  await up(main, file);
+  for (const [k, fl] of EXTRAS(e)) { names[k] = k + extOf(fl); await up(names[k], fl); }
+  return {
+    main, ex: (k) => names[k] || null,
+    probe: async (p) => { const r = await (await api(`/api/edit/${j.id}/probe?name=${encodeURIComponent(p)}`)).json(); if (r.error) throw new Error(r.error); return r; },
+    write: up,
+    run: async (args, out, prog = true, total = 0) => {
+      const r = await api(`/api/edit/${j.id}/run`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ args, total }) });
+      const k = await r.json();
+      if (!r.ok) throw new Error(k.error || 'The helper could not make the video.');
+      const s = await follow(k.id);
+      if (s.text) log('Helper: ' + s.text);
+      return new Uint8Array(await (await fetch(API + '/api/job/' + k.id + '/file')).arrayBuffer());
+    },
+    close: async () => {},
+  };
+}
+
+// everything the recipe needs to know about the video and the changes
+async function prep(e, B) {
+  const m = await B.probe(B.main);
+  const W0 = info.w || m.w, H0 = info.h || m.h, D = m.dur || dur || info.d || 0;
+  if (!W0 || !H0) throw new Error('This file has no picture to edit.');
+  if (!D) throw new Error('Could not read the length of this video.');
+  const fps0 = m.fps > 0 && m.fps < 121 ? m.fps : 30, fps = e.smooth ? 60 : fps0;
+  const g = geom(e, W0, H0), ranges = keepRanges(e, D);
+  if (!ranges.length) throw new Error('Nothing is left after trimming and cutting. Check the start, end and cut times.');
+  const whole = ranges.length === 1 && ranges[0][0] < 0.01 && ranges[0][1] > D - 0.01;
+  const mainDur = ranges.reduce((a, r) => a + r[1] - r[0], 0) / e.speed;
+  if (e.reverse && mainDur * e.speed * fps0 * W0 * H0 * 1.5 > 1.2e9) throw new Error(`This is too long to play backwards here. Trim it to about ${Math.max(1, Math.floor(1.2e9 / (fps0 * W0 * H0 * 1.5)))} seconds first.`);
+  const clipInfo = {};
+  for (const k of ['intro', 'outro']) {
+    const p = B.ex(k); if (!p) continue;
+    const img = e[k].type.startsWith('image/'), pi = await B.probe(p);
+    if (!pi.w) throw new Error(`The ${k} file has no picture.`);
+    clipInfo[k] = { img, dur: img ? 3 : pi.dur, audio: !img && pi.audio, w: pi.w, h: pi.h, fps: pi.fps };
+    if (!clipInfo[k].dur) throw new Error(`Could not read the length of the ${k}.`);
+  }
+  const P = PRESETS[e.preset], mb = P && P.mb != null ? (P.mb || Math.max(1, e.maxmb)) : 0;
+  const total = mainDur + Object.values(clipInfo).reduce((a, c) => a + c.dur, 0);
+  return { m, W0, H0, D, fps0, fps, g, W: g.W, H: g.H, ranges, whole, mainDur, clipInfo, mb, total };
+}
+function subsToOut(list, J, e) { // subtitle times on the finished video's timeline
+  const out = [];
+  for (const s of list) {
+    let acc = 0;
+    for (const [a, b] of J.ranges) {
+      const s0 = Math.max(a, s.s), e0 = Math.min(b, Math.max(s.e, s.s + 0.3));
+      if (e0 > s0) out.push({ s: (acc + s0 - a) / e.speed, e: (acc + e0 - a) / e.speed, tr: s.tr });
+      acc += b - a;
+    }
+  }
+  if (e.reverse) for (const x of out) [x.s, x.e] = [J.mainDur - x.e, J.mainDur - x.s];
+  return out.sort((x, y) => x.s - y.s);
+}
+
+// the ffmpeg recipe; audioOnly: just the finished sound (the graphics-card way makes the picture itself)
+async function recipe(e, J, B, { wav = null, subs = null, audioOnly = false }) {
+  const { g, W, H, ranges, whole, mainDur, clipInfo, fps, m } = J;
+  const args = ['-hide_banner'], fl = [];
+  let ni = 0, k = 0;
+  const input = (...a) => { args.push(...a); return ni++; };
+  const lab = (p = 'v') => `[${p}${k++}]`;
+  const lastEnd = ranges[ranges.length - 1][1];
+  const iMain = input(...(lastEnd < J.D - 0.5 ? ['-to', (lastEnd + 0.5).toFixed(3)] : []), '-i', B.main);
+  let v = `[${iMain}:v]`, a = null;
+  const add = (chain, inp = v) => { const o = lab(); fl.push(`${inp}${chain}${o}`); v = o; };
+  const aadd = (chain, inp = a) => { const o = lab('a'); fl.push(`${inp}${chain}${o}`); a = o; };
+  const cut = (pre, trim, setpts, concatOpt) => { // keep only the ranges (video or audio chain)
+    const s = pre === 'v' ? v : a;
+    if (ranges.length === 1) { const o = lab(pre); fl.push(`${s}${trim}=${ranges[0][0].toFixed(3)}:${ranges[0][1].toFixed(3)},${setpts}${o}`); return o; }
+    const outs = ranges.map(() => lab(pre));
+    fl.push(`${s}${pre === 'v' ? 'split' : 'asplit'}=${ranges.length}${outs.join('')}`);
+    const parts = ranges.map(([r0, r1], i) => { const o = lab(pre); fl.push(`${outs[i]}${trim}=${r0.toFixed(3)}:${r1.toFixed(3)},${setpts}${o}`); return o; });
+    const o = lab(pre); fl.push(`${parts.join('')}concat=n=${ranges.length}:${concatOpt}${o}`); return o;
+  };
+  const vEdit = !audioOnly && (!whole || e.speed !== 1 || e.reverse || g.crop.on || e.turn || e.hflip || e.vflip || e.look.length || !colorId(e.color) || e.sharp || e.soft
+    || e.std !== 'keep' || e.range !== 'keep' || e.boxes.length || (subs && subs.length) || e.stab || e.smooth || g.fit || g.scale || e.logo || e.title || e.ticker
+    || e.intro || e.outro || J.mb);
+
+  // ---- picture ----
+  if (vEdit) {
+    const { W0, H0 } = J;
+    for (const b of e.boxes) { // blur boxes, in the original picture's coordinates
+      const x = Math.floor(clamp(b.x, 0, 1) * W0 / 2) * 2, y = Math.floor(clamp(b.y, 0, 1) * H0 / 2) * 2;
+      const w = Math.min(evn(b.w * W0), W0 - x - (W0 - x) % 2), h = Math.min(evn(b.h * H0), H0 - y - (H0 - y) % 2);
+      if (w < 8 || h < 8) continue;
+      const r = Math.max(1, Math.min(Math.round(4 + e.bstr * 0.36), Math.floor(Math.min(w, h) / 4) - 1));
+      const a1 = lab(), a2 = lab(), bb = lab(), o = lab();
+      fl.push(`${v}split${a1}${a2}`, `${a2}crop=${w}:${h}:${x}:${y},boxblur=${r}:2${bb}`, `${a1}${bb}overlay=${x}:${y}${o}`); v = o;
+    }
+    if (!whole) v = cut('v', 'trim', 'setpts=PTS-STARTPTS', 'v=1:a=0');
+    if (e.stab) add('deshake');
+    if (g.crop.on) add(`crop=${g.crop.cw}:${g.crop.ch}:${g.crop.cx}:${g.crop.cy}`);
+    if (e.turn === 90) add('transpose=1'); else if (e.turn === 270) add('transpose=2'); else if (e.turn === 180) add('hflip,vflip');
+    if (e.hflip) add('hflip');
+    if (e.vflip) add('vflip');
+    if (e.look.length) add(e.look.join(','));
+    if (!colorId(e.color)) { await B.write('lut.cube', new TextEncoder().encode(cube(e.color))); add('lut3d=file=lut.cube:interp=tetrahedral'); }
+    if (e.sharp) add(`unsharp=5:5:${(e.sharp / 100 * 1.5).toFixed(2)}`);
+    if (e.soft) add(`gblur=sigma=${(e.soft / 100 * 6).toFixed(2)}`);
+    if (e.speed !== 1) add(`setpts=PTS/${e.speed}`);
+    if (e.reverse) add('reverse');
+    if (g.fit === 'pad') add(`scale=${W}:${H}:force_original_aspect_ratio=decrease:force_divisible_by=2:flags=lanczos,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:black,setsar=1`);
+    else if (g.fit === 'fill') add(`scale=${W}:${H}:force_original_aspect_ratio=increase:flags=lanczos,crop=${W}:${H},setsar=1`);
+    else if (g.fit === 'blur') { // the background is blurred at 1/8 size, then enlarged: much faster than blurring it full size
+      const p1 = lab(), p2 = lab(), bg = lab(), fg = lab(), o = lab(), sw = evn(W / 8), sh = evn(H / 8);
+      fl.push(`${v}split${p1}${p2}`, `${p1}scale=${sw}:${sh}:force_original_aspect_ratio=increase,crop=${sw}:${sh},boxblur=3:2,scale=${W}:${H}:flags=bilinear${bg}`,
+        `${p2}scale=${W}:${H}:force_original_aspect_ratio=decrease:force_divisible_by=2:flags=lanczos${fg}`, `${bg}${fg}overlay=(W-w)/2:(H-h)/2,setsar=1${o}`);
+      v = o;
+    } else if (g.scale) add(`scale=${W}:${H}:flags=lanczos,setsar=1`);
+    if (e.smooth === 'blend') add('framerate=fps=60');
+    else if (e.smooth === 'motion') add('minterpolate=fps=60:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1');
+    if (subs && subs.length) { // drawn at the final size, timed on the finished video
+      await subtitlePNGs(subsToOut(subs, J, e), W, H, B);
+      const si = input('-f', 'concat', '-safe', '0', '-i', 'list.txt');
+      add('overlay=0:0:eof_action=pass', `${v}[${si}:v]`);
+    }
+    const lg = logoLayer(e, W, H), tl = titleLayer(e, W, H), tk = tickerLayer(e, W, H);
+    if (tk) {
+      await B.write('tick.png', await pngOf(tk.cv));
+      const ti = input('-i', 'tick.png');
+      add(`drawbox=x=0:y=${tk.y}:w=iw:h=${tk.h}:color=0x${e.ticker.bar.slice(1)}@0.75:t=fill`);
+      add(`overlay=x='W-mod(t*${tk.speed},W+w)':y=${tk.y}`, `${v}[${ti}:v]`);
+    }
+    if (tl) {
+      await B.write('title.png', await pngOf(tl));
+      const ti = input('-i', 'title.png');
+      add(`overlay=0:0${e.title.secs > 0 ? `:enable='lte(t,${e.title.secs})'` : ''}`, `${v}[${ti}:v]`);
+    }
+    if (lg) {
+      await B.write('logo.png', await pngOf(lg.cv));
+      const li = input('-i', 'logo.png');
+      add(`overlay=${lg.x}:${lg.y}${e.logo.secs > 0 ? `:enable='lte(t,${e.logo.secs})'` : ''}`, `${v}[${li}:v]`);
+    }
+  }
+
+  // ---- sound ----
+  const pRep = B.ex('rep'), pMusic = B.ex('music');
+  const base = e.amode === 'mute' ? null : pRep ? 'rep' : wav ? 'wav' : m.audio ? 'main' : null;
+  const AF = 'aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo';
+  if (base === 'wav' || base === 'main') {
+    if (base === 'wav') await B.write('a.wav', wav);
+    a = `[${base === 'wav' ? input('-i', 'a.wav') : iMain}:a]`;
+    if (e.noise) aadd(`afftdn=nr=${e.noise === 'strong' ? 24 : 12}:nf=-35`);
+    if (!whole) a = cut('a', 'atrim', 'asetpts=PTS-STARTPTS', 'v=0:a=1');
+    if (e.speed !== 1) aadd(atempo(e.speed));
+    if (e.reverse) aadd('areverse');
+  } else if (base === 'rep') {
+    a = `[${input('-i', pRep)}:a]`;
+    if (e.noise) aadd(`afftdn=nr=${e.noise === 'strong' ? 24 : 12}:nf=-35`);
+  }
+  if (a && e.vol !== 100) aadd(`volume=${(e.vol / 100).toFixed(2)}`);
+  if (pMusic) {
+    const mi = input(...(e.mloop ? ['-stream_loop', '-1'] : []), '-i', pMusic);
+    const mus = lab('a'); fl.push(`[${mi}:a]volume=${e.mvol.toFixed(2)},${AF}${mus}`);
+    if (a) {
+      aadd(AF);
+      const o = lab('a');
+      if (e.duck) { // the voice squeezes the music down while it is heard
+        const b1 = lab('a'), b2 = lab('a'), md = lab('a');
+        fl.push(`${a}asplit${b1}${b2}`, `${mus}${b2}sidechaincompress=threshold=0.015:ratio=8:attack=20:release=600${md}`, `${b1}${md}amix=inputs=2:duration=first:normalize=0${o}`);
+      } else fl.push(`${a}${mus}amix=inputs=2:duration=first:normalize=0${o}`);
+      a = o;
+    } else a = mus;
+  }
+  if (a && e.norm) aadd('loudnorm=I=-16:TP=-1.5:LRA=11');
+  if (a) aadd(`${AF},apad,atrim=0:${mainDur.toFixed(3)}`);
+
+  // ---- intro and outro: same size, frame rate and sound format, then joined ----
+  if (B.ex('intro') || B.ex('outro')) {
+    if (!audioOnly) add(`fps=${fps},format=yuv420p,setsar=1`);
+    const anyA = !!a || Object.values(clipInfo).some((c) => c.audio);
+    if (anyA && !a) { a = lab('a'); fl.push(`aevalsrc=0:c=stereo:s=48000:d=${mainDur.toFixed(3)}${a}`); }
+    const seg = (key) => {
+      const c = clipInfo[key], cv = lab(), ca = lab('a');
+      const ii = !audioOnly || c.audio ? input(...(c.img ? ['-loop', '1', '-t', '3'] : []), '-i', B.ex(key)) : -1;
+      if (!audioOnly) fl.push(`[${ii}:v]scale=${W}:${H}:force_original_aspect_ratio=decrease:force_divisible_by=2:flags=lanczos,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:black,setsar=1,fps=${fps},format=yuv420p${cv}`);
+      if (anyA) fl.push(c.audio ? `[${ii}:a]${AF},apad,atrim=0:${c.dur.toFixed(3)}${ca}` : `aevalsrc=0:c=stereo:s=48000:d=${c.dur.toFixed(3)}${ca}`);
+      return (audioOnly ? '' : cv) + (anyA ? ca : '');
+    };
+    const list = [...(B.ex('intro') ? [seg('intro')] : []), (audioOnly ? '' : v) + (anyA ? a : ''), ...(B.ex('outro') ? [seg('outro')] : [])];
+    if (audioOnly) { if (anyA) { const oa = lab('a'); fl.push(`${list.join('')}concat=n=${list.length}:v=0:a=1${oa}`); a = oa; } }
+    else {
+      const ov = lab(), oa = lab('a');
+      fl.push(`${list.join('')}concat=n=${list.length}:v=1:a=${anyA ? 1 : 0}${ov}${anyA ? oa : ''}`);
+      v = ov; a = anyA ? oa : null;
+    }
+  }
+
+  // ---- colour standard and file ----
+  const tags = [];
+  if (vEdit && (e.std !== 'keep' || e.range !== 'keep')) {
+    const t = m.tags || '', from = /bt2020/.test(t) ? 'bt2020' : /bt709/.test(t) ? 'bt709' : /bt470|smpte170|bt601/.test(t) ? 'bt601' : J.H0 >= 720 ? 'bt709' : 'bt601';
+    const to = e.std === 'keep' ? from : e.std, ir = /\bpc\b/.test(t) ? 'pc' : 'tv', r = e.range === 'keep' ? ir : e.range;
+    add(`colorspace=all=${CS[to][0]}:iall=${CS[from][0]}:range=${r}:irange=${ir}:format=yuv420p`);
+    tags.push('-colorspace', CS[to][1], '-color_primaries', CS[to][2], '-color_trc', CS[to][3], '-color_range', r);
+  }
+  if (vEdit) add('format=yuv420p');
+  const mb = J.mb;
+  let venc;
+  if (audioOnly) venc = ['-vn'];
+  else if (!vEdit) venc = ['-map', `${iMain}:v:0`, '-c:v', 'copy'];
+  else if (mb) {
+    const kb = Math.max(120, Math.floor(mb * 8192 * 0.93 / J.total - (a ? 96 : 0)));
+    venc = ['-map', v, '-c:v', 'libx264', '-preset', 'veryfast', '-b:v', kb + 'k', '-maxrate', Math.round(kb * 1.25) + 'k', '-bufsize', kb * 2 + 'k'];
+  } else venc = ['-map', v, '-c:v', 'libx264', '-preset', e.quality === 'small' ? 'veryfast' : 'ultrafast', '-crf', e.quality === 'small' ? '24' : '21'];
+  const srcExt = (file.name.match(/\.([^.]+)$/) || [, 'mp4'])[1].toLowerCase();
+  const ext = audioOnly ? 'm4a' : vEdit || ['mp4', 'mov', 'm4v'].includes(srcExt) ? 'mp4' : 'mkv', out = 'edit.' + ext;
+  if (fl.length) args.push('-filter_complex', fl.join(';'));
+  args.push(...venc, ...(a ? ['-map', a, '-c:a', 'aac', '-b:a', mb ? '96k' : '160k'] : ['-an']), ...tags, '-t', J.total.toFixed(3), '-movflags', '+faststart', out);
+  return { args, out, ext, hasA: !!a };
+}
+
+// ---- which way to make the edit ----
+let helperEdit = null; // what the helper said it can do: { ready, gpu, label }
+const hasWebGL2 = (() => { try { return !!document.createElement('canvas').getContext('webgl2'); } catch { return false; } })();
+function gpuBlocker(e) { // why the graphics-card way cannot do these changes (null = it can)
+  if (!self.VideoEncoder || !self.VideoDecoder || !hasWebGL2) return 'this browser has no video encoder for it';
+  if (!file || !/\.(mp4|mov|m4v)$/i.test(file.name)) return 'it reads only MP4 and MOV files';
+  for (const k of ['intro', 'outro']) if (e[k] && !e[k].type.startsWith('image/') && !/\.(mp4|mov|m4v)$/i.test(e[k].name)) return `the ${k} is not an MP4 file`;
+  if (e.reverse) return 'playing backwards needs the processor';
+  if (e.stab) return 'steadying needs the processor';
+  if (e.smooth) return '60 fps needs the processor';
+  if (e.std !== 'keep' || e.range !== 'keep') return 'changing the colour standard needs the processor';
+  if (e.look.length) return 'Quick enhance needs the processor';
+  if (e.quality === 'small') return '"Smaller file" uses the processor';
+  return null;
+}
+function engineFor(e) { // → { kind: 'helper' | 'gpu' | 'wasm', label, why }
+  const want = $('engine').value, gb = gpuBlocker(e);
+  const helper = serverOK && helperEdit && helperEdit.ready;
+  const H = () => ({ kind: 'helper', label: `the helper on this computer (${helperEdit.label})` });
+  const G = { kind: 'gpu', label: 'this browser, with the graphics card' };
+  const F = { kind: 'wasm', label: `this browser, with the processor${self.crossOriginIsolated && !ffNoMT ? ' (all cores)' : ''}` };
+  if (want === 'helper') return helper ? H() : { ...F, why: 'the helper is not connected' };
+  if (want === 'gpu') return gb ? { ...F, why: gb } : G;
+  if (want === 'wasm') return F;
+  if (helper && helperEdit.gpu) return H();
+  if (!gb) return G;
+  if (helper) return H();
+  return { ...F, why: gb };
+}
+async function render({ wav = null, subs = null }) { // → { blob, ext }
+  const e = edits(), eng = engineFor(e);
+  if (isNaN(e.start) || (e.end != null && isNaN(e.end))) throw new Error('Start or end time is not a time. Write it like 1:20 or 80.');
+  if (e.smooth === 'motion') note('Making new frames for 60 fps is slow: this can take a long time.');
+  log(`Edit: ${summary(e).join(', ') || 'none'} · made with ${eng.label}`);
+  const t0 = performance.now();
+  let r;
+  if (eng.kind === 'gpu') {
+    try { r = await renderGPU(e, { wav, subs }); }
+    catch (err) {
+      if (err.cancel || !err.noGPU) throw err;
+      log('Graphics card way not possible: ' + err.message + '. Using the processor.');
+    }
+  }
+  if (!r) {
+    const B = eng.kind === 'helper' ? await helperBackend(e) : await wasmBackend(e);
+    try {
+      const J = await prep(e, B), R = await recipe(e, J, B, { wav, subs });
+      if ((() => { try { return localStorage.getItem('vd-debug'); } catch { return null; } })()) log('ffmpeg ' + R.args.join(' '));
+      const data = await B.run(R.args, R.out, true, J.total);
+      if (J.mb && data.length > J.mb * 1048576) note(`The file is ${(data.length / 1048576).toFixed(1)} MB, a little over the ${J.mb} MB limit. Choose a lower limit and make it again.`);
+      r = { blob: new Blob([data], { type: R.ext === 'mp4' ? 'video/mp4' : 'video/x-matroska' }), ext: R.ext };
+    } finally { await B.close(); }
+  }
+  log(`Edit took ${((performance.now() - t0) / 1000).toFixed(1)} s`);
+  return r;
+}
+
+// ---- the graphics-card way ----
+const MP4BOX_URL = 'https://cdn.jsdelivr.net/npm/mp4box@0.5.2/+esm', MUX_URL = 'https://cdn.jsdelivr.net/npm/mp4-muxer@5.1.3/build/mp4-muxer.mjs';
+const noGPU = (msg) => Object.assign(new Error(msg), { noGPU: true });
+async function demux(blob) { // MP4/MOV → the video track's coded frames
+  const M = await import(MP4BOX_URL), MP4Box = M.createFile ? M : M.default;
+  const mp = MP4Box.createFile(), samples = [];
+  let track = null, err = null;
+  mp.onError = (x) => (err = x);
+  mp.onReady = (inf) => { track = inf.videoTracks[0]; if (track) { mp.setExtractionOptions(track.id, null, { nbSamples: 500 }); mp.start(); } };
+  mp.onSamples = (id, u, ss) => { for (const s of ss) samples.push({ key: s.is_sync, cts: s.cts, dur: s.duration, data: s.data }); mp.releaseUsedSamples(id, ss[ss.length - 1].number + 1); };
+  for (let off = 0; off < blob.size && !err;) {
+    const buf = await blob.slice(off, off + (8 << 20)).arrayBuffer(); buf.fileStart = off;
+    const next = mp.appendBuffer(buf);
+    off = typeof next === 'number' && next > off ? next : off + buf.byteLength;
+  }
+  mp.flush();
+  if (err || !track || !samples.length) throw noGPU('could not read the video track' + (err ? ': ' + err : ''));
+  let desc;
+  for (const en of mp.getTrackById(track.id).mdia.minf.stbl.stsd.entries) {
+    const box = en.avcC || en.hvcC || en.vpcC || en.av1C;
+    if (box) { const st = new MP4Box.DataStream(undefined, 0, MP4Box.DataStream.BIG_ENDIAN); box.write(st); desc = new Uint8Array(st.buffer, 8); break; }
+  }
+  const cfg = { codec: track.codec, codedWidth: track.video.width, codedHeight: track.video.height, ...(desc ? { description: desc } : {}) };
+  if (!(await VideoDecoder.isConfigSupported(cfg).catch(() => ({}))).supported) throw noGPU(`this browser cannot decode ${track.codec}`);
+  const mx = track.matrix || [65536, 0, 0, 0, 65536, 0];
+  const rot = ((Math.round(Math.atan2(mx[1], mx[0]) * 180 / Math.PI / 90) * 90) % 360 + 360) % 360;
+  let t0 = Infinity; for (let i = 0; i < Math.min(64, samples.length); i++) t0 = Math.min(t0, samples[i].cts);
+  return { cfg, samples, ts: track.timescale, t0, rot };
+}
+async function decodeRange(dm, from, to, onFrame) { // calls onFrame(frame, seconds) in order for frames in [from, to); onFrame closes it
+  const S = dm.samples, T = (s) => (s.cts - dm.t0) / dm.ts;
+  let i = 0;
+  for (let j = 0; j < S.length; j++) if (S[j].key) { if (T(S[j]) <= from + 1e-3) i = j; else break; }
+  const q = [];
+  let err = null, done = false, wake = null;
+  const kick = () => { const w = wake; wake = null; if (w) w(); };
+  const dec = new VideoDecoder({ output: (f) => { q.push(f); kick(); }, error: (x) => { err = x; kick(); } });
+  dec.ondequeue = kick;
+  dec.configure(dm.cfg);
+  let flushing = false;
+  try {
+    for (;;) {
+      if (err) throw noGPU('the video decoder stopped: ' + err.message);
+      checkCancel();
+      while (!flushing && dec.decodeQueueSize < 6 && q.length < 6) {
+        if (i >= S.length || (S[i].key && T(S[i]) > to + 0.5)) { flushing = true; dec.flush().then(() => { done = true; kick(); }, (x) => { err = x; kick(); }); break; }
+        const s = S[i++];
+        dec.decode(new EncodedVideoChunk({ type: s.key ? 'key' : 'delta', timestamp: Math.round((s.cts - dm.t0) * 1e6 / dm.ts), duration: Math.round(s.dur * 1e6 / dm.ts), data: s.data }));
+      }
+      if (q.length) {
+        const f = q.shift(), t = f.timestamp / 1e6;
+        if (t >= from - 1e-4 && t < to - 1e-4) await onFrame(f, t); else f.close();
+        continue;
+      }
+      if (done) break;
+      await new Promise((r) => { wake = r; setTimeout(r, 50); });
+    }
+  } finally { for (const f of q) f.close(); if (dec.state !== 'closed') dec.close(); }
+}
+async function renderGPU(e, { wav, subs }) {
+  const B = await wasmBackend(e); // ffmpeg still reads the sizes, makes the sound and joins the two at the end
+  try {
+    const J = await prep(e, B), { W, H, fps } = J;
+    const codec = await encOK(W, H);
+    if (!codec) throw noGPU(`this browser cannot encode ${W}×${H} with the graphics card`);
+    stat('Reading the video…');
+    const dm = await demux(file), clips = {};
+    for (const k of ['intro', 'outro']) {
+      if (!e[k]) continue;
+      clips[k] = J.clipInfo[k].img ? { img: await createImageBitmap(e[k]), dur: 3 } : { dm: await demux(e[k]), dur: J.clipInfo[k].dur };
+    }
+    // the sound is made by ffmpeg in its own worker while the graphics card makes the picture
+    const A = await recipe(e, J, B, { wav, audioOnly: true });
+    const sound = A.hasA ? B.run(A.args, A.out, false) : Promise.resolve(null);
+    sound.catch(() => {});
+    const { Muxer, ArrayBufferTarget } = await import(MUX_URL);
+    const target = new ArrayBufferTarget();
+    const mux = new Muxer({ target, video: { codec: 'avc', width: W, height: H, frameRate: Math.round(fps) }, fastStart: 'in-memory', firstTimestampBehavior: 'offset' });
+    let encErr = null, wake = null;
+    const kick = () => { const w = wake; wake = null; if (w) w(); };
+    const enc = new VideoEncoder({ output: (c, m) => mux.addVideoChunk(c, m), error: (x) => { encErr = x; kick(); } });
+    enc.ondequeue = kick;
+    const kbps = J.mb ? Math.max(120, Math.floor(J.mb * 8192 * 0.93 / J.total - (A.hasA ? 96 : 0))) : clamp(Math.round(W * H * fps * 0.14 / 1000), 1500, 60000);
+    enc.configure({ codec, width: W, height: H, bitrate: kbps * 1000, framerate: fps, bitrateMode: 'variable', latencyMode: 'quality', avc: { format: 'avc' } });
+    const P = makePainter(e, J.W0, J.H0, J.g, 1, 1, dm.rot), subsOut = subs && subs.length ? subsToOut(subs, J, e) : null;
+    const slot = 1 / fps, gop = Math.max(1, Math.round(fps * 2));
+    let n = 0;
+    const emit = async (cv, t) => {
+      checkCancel();
+      const vf = new VideoFrame(cv, { timestamp: Math.round(t * 1e6), duration: Math.round(slot * 1e6) });
+      enc.encode(vf, { keyFrame: n % gop === 0 }); vf.close(); n++;
+      while (enc.encodeQueueSize > 4 && !encErr) await new Promise((r) => { wake = r; setTimeout(r, 50); });
+      if (encErr) throw noGPU('the video encoder stopped: ' + encErr.message);
+      if (n % 10 === 0) { bar(t / J.total); stat(`Making the video with the graphics card: ${Math.round(100 * t / J.total)}%`); }
+    };
+    const clip = async (c, off) => { // intro or outro, fitted with black bars like ffmpeg does
+      const cv = canvas(W, H), x = cv.getContext('2d');
+      const put = (src, w, h) => { const r = Math.min(W / w, H / h); x.fillStyle = '#000'; x.fillRect(0, 0, W, H); x.drawImage(src, (W - w * r) / 2, (H - h * r) / 2, w * r, h * r); };
+      let next = 0;
+      if (c.img) { put(c.img, c.img.width, c.img.height); for (; next < c.dur - slot / 2; next += slot) await emit(cv, off + next); return; }
+      await decodeRange(c.dm, 0, c.dur + 1, async (f, t) => {
+        if (t < next - slot / 2 || t >= c.dur) { f.close(); return; }
+        put(f, f.displayWidth, f.displayHeight); f.close();
+        while (next < t + slot / 2) { await emit(cv, off + next); next += slot; }
+      });
+      for (; next < c.dur - slot / 2; next += slot) await emit(cv, off + next);
+    };
+    let off = 0;
+    if (clips.intro) { await clip(clips.intro, 0); off += clips.intro.dur; }
+    // the main video: frames keep their place on a fixed frame grid (dropped when faster, repeated when slower)
+    let next = 0, acc = 0, painted = false;
+    for (const [r0, r1] of J.ranges) {
+      await decodeRange(dm, r0, r1, async (f, ts) => {
+        const t = (acc + ts - r0) / e.speed;
+        if (t < next - slot / 2 || t >= J.mainDur) { f.close(); return; }
+        while (painted && next + slot / 2 <= t) { await emit(P.out, off + next); next += slot; }
+        P.draw(f, next, subsOut); f.close(); painted = true;
+        await emit(P.out, off + next); next += slot;
+      });
+      acc += r1 - r0;
+    }
+    if (!painted) throw noGPU('no frames came out of the video decoder');
+    while (next + slot / 2 <= J.mainDur) { await emit(P.out, off + next); next += slot; }
+    off += J.mainDur;
+    if (clips.outro) await clip(clips.outro, off);
+    await enc.flush(); enc.close(); mux.finalize();
+    stat('Adding the sound…');
+    const vid = new Uint8Array(target.buffer), aud = await sound;
+    let data = vid;
+    if (aud) { await B.write('gv.mp4', vid); data = await B.run(['-i', 'gv.mp4', '-i', A.out, '-map', '0:v', '-map', '1:a', '-c', 'copy', '-movflags', '+faststart', 'gpu.mp4'], 'gpu.mp4', false); }
+    if (J.mb && data.length > J.mb * 1048576) note(`The file is ${(data.length / 1048576).toFixed(1)} MB, a little over the ${J.mb} MB limit. Choose a lower limit and make it again.`);
+    return { blob: new Blob([data], { type: 'video/mp4' }), ext: 'mp4' };
+  } finally { await B.close(); }
+}
+
+// ---- the painter: draws one finished frame. Used by the preview and by the graphics-card way, so both look the same ----
+let GLS = null;
+function glStage() { // WebGL2: colour table (3D texture) and sharpen, for a whole frame at once
+  if (GLS !== null) return GLS;
+  GLS = false;
+  const cv = document.createElement('canvas'), gl = cv.getContext('webgl2', { premultipliedAlpha: false, preserveDrawingBuffer: true, antialias: false });
+  if (!gl) return GLS;
+  const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; };
+  const p = gl.createProgram();
+  gl.attachShader(p, sh(gl.VERTEX_SHADER, '#version 300 es\nin vec2 a; out vec2 uv; void main() { uv = a * 0.5 + 0.5; gl_Position = vec4(a, 0.0, 1.0); }'));
+  gl.attachShader(p, sh(gl.FRAGMENT_SHADER, `#version 300 es
+precision highp float; precision highp sampler3D;
+uniform sampler2D img; uniform sampler3D lut; uniform float useLut, sharp, N; uniform vec2 px;
+in vec2 uv; out vec4 o;
+void main() {
+  vec3 c = texture(img, uv).rgb;
+  if (sharp > 0.0) {
+    vec3 b = vec3(0.0);
+    for (int y = -1; y <= 1; y++) for (int x = -1; x <= 1; x++) b += texture(img, uv + vec2(float(x), float(y)) * px).rgb;
+    c = clamp(c + sharp * (c - b / 9.0), 0.0, 1.0);
+  }
+  if (useLut > 0.5) c = texture(lut, (c * (N - 1.0) + 0.5) / N).rgb;
+  o = vec4(c, 1.0);
+}`));
+  gl.linkProgram(p); gl.useProgram(p);
+  gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+  const loc = gl.getAttribLocation(p, 'a'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+  const U = (n) => gl.getUniformLocation(p, n);
+  for (const [unit, target] of [[0, gl.TEXTURE_2D], [1, gl.TEXTURE_3D]]) {
+    gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(target, gl.createTexture());
+    gl.texParameteri(target, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(target, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    for (const w of [gl.TEXTURE_WRAP_S, gl.TEXTURE_WRAP_T, gl.TEXTURE_WRAP_R]) gl.texParameteri(target, w, gl.CLAMP_TO_EDGE);
+  }
+  gl.uniform1i(U('img'), 0); gl.uniform1i(U('lut'), 1);
+  let lutKey = null;
+  GLS = {
+    run(src, e) {
+      const w = src.width, h = src.height;
+      if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+      gl.viewport(0, 0, w, h);
+      const useLut = !colorId(e.color), key = JSON.stringify(e.color);
+      if (useLut && key !== lutKey) {
+        const { N, data } = lutData(e.color);
+        gl.activeTexture(gl.TEXTURE1); gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+        gl.texImage3D(gl.TEXTURE_3D, 0, gl.RGB8, N, N, N, 0, gl.RGB, gl.UNSIGNED_BYTE, data);
+        gl.uniform1f(U('N'), N); lutKey = key;
+      }
+      gl.uniform1f(U('useLut'), useLut ? 1 : 0); gl.uniform1f(U('sharp'), e.sharp / 100 * 1.5); gl.uniform2f(U('px'), 1 / w, 1 / h);
+      gl.activeTexture(gl.TEXTURE0); gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      return cv;
+    },
+  };
+  return GLS;
+}
+// kSrc: scale of the source-side pictures, kOut: scale of the finished frame (1 = full size); rot: turn stored in the file
+function makePainter(e, W0, H0, g, kSrc, kOut, rot = 0) {
+  const sw = Math.max(1, Math.round(W0 * kSrc)), sh = Math.max(1, Math.round(H0 * kSrc));
+  const c1 = canvas(sw, sh), x1 = c1.getContext('2d'), cp = e.boxes.length ? canvas(sw, sh) : null;
+  const c = g.crop, side = e.turn % 180 !== 0, cw = Math.max(1, Math.round(c.cw * kSrc)), ch = Math.max(1, Math.round(c.ch * kSrc));
+  const c2 = canvas(side ? ch : cw, side ? cw : ch), x2 = c2.getContext('2d');
+  const gls = !colorId(e.color) || e.sharp > 0 ? glStage() : null;
+  const dw = Math.max(1, Math.round(g.W * kOut)), dh = Math.max(1, Math.round(g.H * kOut)), out = canvas(dw, dh), xo = out.getContext('2d');
+  const tk = tickerLayer(e, g.W, g.H), tl = titleLayer(e, g.W, g.H), lg = logoLayer(e, g.W, g.H);
+  const blurPx = (4 + e.bstr * 0.36) * 0.9 * kSrc;
+  const softPx = e.soft ? e.soft / 100 * 6 * dw / (side ? c.ch : c.cw) : 0;
+  function draw(src, t, subs, preview = false) {
+    x1.save();
+    if (rot) { x1.translate(sw / 2, sh / 2); x1.rotate(rot * Math.PI / 180); const [a, b] = rot % 180 ? [sh, sw] : [sw, sh]; x1.drawImage(src, -a / 2, -b / 2, a, b); }
+    else x1.drawImage(src, 0, 0, sw, sh);
+    x1.restore();
+    if (cp) {
+      const xc = cp.getContext('2d'); xc.clearRect(0, 0, sw, sh); xc.drawImage(c1, 0, 0);
+      for (const b of e.boxes) { x1.save(); x1.beginPath(); x1.rect(b.x * sw, b.y * sh, b.w * sw, b.h * sh); x1.clip(); x1.filter = `blur(${Math.max(1, blurPx).toFixed(1)}px)`; x1.drawImage(cp, 0, 0); x1.restore(); }
+    }
+    x2.setTransform(1, 0, 0, 1, 0, 0);
+    x2.translate(c2.width / 2, c2.height / 2); x2.scale(e.hflip ? -1 : 1, e.vflip ? -1 : 1); x2.rotate(e.turn * Math.PI / 180);
+    x2.drawImage(c1, c.cx * kSrc, c.cy * kSrc, c.cw * kSrc, c.ch * kSrc, -cw / 2, -ch / 2, cw, ch);
+    x2.setTransform(1, 0, 0, 1, 0, 0);
+    const pic = gls ? gls.run(c2, e) : c2;
+    xo.fillStyle = '#000'; xo.fillRect(0, 0, dw, dh);
+    const soft = softPx ? `blur(${softPx.toFixed(2)}px)` : 'none';
+    const fitDraw = (mode, filter) => {
+      const r = mode === 'cover' ? Math.max(dw / pic.width, dh / pic.height) : Math.min(dw / pic.width, dh / pic.height);
+      const w = pic.width * r, h = pic.height * r; xo.filter = filter; xo.drawImage(pic, (dw - w) / 2, (dh - h) / 2, w, h);
+    };
+    if (g.fit === 'pad') fitDraw('contain', soft);
+    else if (g.fit === 'fill') fitDraw('cover', soft);
+    else if (g.fit === 'blur') { fitDraw('cover', `blur(${Math.round(dw / 40)}px)`); fitDraw('contain', soft); }
+    else { xo.filter = soft; xo.drawImage(pic, 0, 0, dw, dh); }
+    xo.filter = 'none';
+    if (subs) for (const s of subs) if (t >= s.s && t < s.e) { xo.save(); xo.scale(kOut, kOut); drawSub(xo, s.tr, g.W, g.H); xo.restore(); }
+    if (tk) {
+      xo.globalAlpha = 0.75; xo.fillStyle = e.ticker.bar; xo.fillRect(0, tk.y * kOut, dw, tk.h * kOut); xo.globalAlpha = 1;
+      const x = preview ? g.W * 0.05 : g.W - ((t * tk.speed) % (g.W + tk.cv.width));
+      xo.drawImage(tk.cv, x * kOut, tk.y * kOut, tk.cv.width * kOut, tk.h * kOut);
+    }
+    if (tl && (preview || !(e.title.secs > 0) || t <= e.title.secs)) xo.drawImage(tl, 0, 0, dw, dh);
+    if (lg && (preview || !(e.logo.secs > 0) || t <= e.logo.secs)) xo.drawImage(lg.cv, lg.x * kOut, lg.y * kOut, lg.cv.width * kOut, lg.cv.height * kOut);
+  }
+  return { out, draw, lg, c1 };
+}
+
+// ---- preview ----
+const pv = $('pv'), pvv = document.createElement('video');
+pvv.muted = true; pvv.playsInline = true; pvv.preload = 'auto';
+let pvURL = null, pvOK = false, drawMode = false, drag = null, pvMap = null, pvRaf = 0;
+function pvLoad() {
+  pvOK = false;
+  if (pvURL) URL.revokeObjectURL(pvURL);
+  pvURL = null;
+  if (!file || !info.w) { $('pvw').hidden = true; $('ednone').hidden = false; $('ednone').textContent = file ? 'This file has no picture, so there is nothing to preview.' : 'Choose a video above to see a preview here.'; return; }
+  pvURL = URL.createObjectURL(file); pvv.src = pvURL;
+}
+pvv.onloadeddata = () => {
+  pvOK = true; $('pvw').hidden = false; $('ednone').hidden = true;
+  $('pvs').max = String(Math.max(0.1, pvv.duration || 0));
+  const t = Math.min(1, (pvv.duration || 0) / 3); $('pvs').value = String(t); pvv.currentTime = t; $('pvt').textContent = mmss(t);
+};
+pvv.onseeked = () => schedule();
+$('pvs').oninput = () => { const t = +$('pvs').value; pvv.currentTime = t; $('pvt').textContent = mmss(t); };
+const schedule = () => { if (!pvRaf) pvRaf = requestAnimationFrame(() => { pvRaf = 0; drawPreview(); }); };
+function drawPreview() {
+  const e = edits(), on = summary(e);
+  $('edsum').textContent = on.length ? 'Changes on: ' + on.join(', ') + '.' : 'Nothing changed yet. Open a part below to make a change.';
+  $('fitw').hidden = !(PRESETS[e.preset] && PRESETS[e.preset].w);
+  $('maxmbw').hidden = e.preset !== 'mb';
+  $('afilew').hidden = $('amode').value !== 'replace';
+  $('bcount').textContent = boxes.length ? `${boxes.length} box${boxes.length > 1 ? 'es' : ''}` : '';
+  $('bdraw').textContent = drawMode ? 'Done drawing' : 'Draw a box';
+  for (const b of $('lgrid').children) b.classList.toggle('on', +b.dataset.ax === logoPos.ax && +b.dataset.ay === logoPos.ay);
+  for (const id of ['cpos', 'lsize', 'lmargin', 'lalpha', 'tsize', 'cbri', 'ccon', 'csat', 'chue', 'cwarm', 'csharp', 'csoft', 'bstr', 'avol', 'mvol']) {
+    const val = $(id).value; $(id + 'v').textContent = id === 'chue' ? val + '°' : ['cbri', 'cwarm'].includes(id) ? (val > 0 ? '+' : '') + val : val + '%';
+  }
+  const eng = engineFor(e);
+  $('engineinfo').textContent = file ? `Will be made with ${eng.label}.` + (eng.why ? ` The graphics card is not used because ${eng.why}.` : '') : '';
+  if (!pvOK || !pvv.videoWidth) return;
+  const W0 = pvv.videoWidth, H0 = pvv.videoHeight, g = geom(e, W0, H0);
+  const P = makePainter(e, W0, H0, g, Math.min(1, 720 / Math.max(W0, H0)), Math.min(1, 720 / Math.max(g.W, g.H)));
+  P.draw(pvv, pvv.currentTime || 0, $('tgt').value === 'keep' ? srtSegs : null, true);
+  const ctx = pv.getContext('2d');
+  pvMap = null;
+  if (drawMode) { // the original frame, where boxes are drawn
+    const src = P.c1, bpx = (b) => [b.x * src.width, b.y * src.height, b.w * src.width, b.h * src.height];
+    pv.width = src.width; pv.height = src.height; ctx.drawImage(src, 0, 0);
+    ctx.strokeStyle = '#ffcc00'; ctx.lineWidth = 2;
+    for (const b of boxes) ctx.strokeRect(...bpx(b));
+    if (drag && drag.box && drag.x1 != null) ctx.strokeRect(Math.min(drag.x0, drag.x1), Math.min(drag.y0, drag.y1), Math.abs(drag.x1 - drag.x0), Math.abs(drag.y1 - drag.y0));
+    pv.style.cursor = 'crosshair'; return;
+  }
+  pv.width = P.out.width; pv.height = P.out.height; ctx.drawImage(P.out, 0, 0);
+  if (P.lg) {
+    const k = P.out.width / g.W, lg = P.lg, m = Math.round(Math.min(g.W, g.H) * e.logo.margin);
+    pvMap = { k, x: lg.x * k, y: lg.y * k, w: lg.cv.width * k, h: lg.cv.height * k, m, W: g.W, H: g.H, lw: lg.cv.width, lh: lg.cv.height };
+  }
+  pv.style.cursor = pvMap ? 'grab' : 'default';
+}
+const pvXY = (ev) => { const r = pv.getBoundingClientRect(); return [(ev.clientX - r.left) * pv.width / r.width, (ev.clientY - r.top) * pv.height / r.height]; };
+pv.addEventListener('pointerdown', (ev) => {
+  const [x, y] = pvXY(ev);
+  if (drawMode) drag = { box: true, x0: x, y0: y };
+  else if (pvMap && x >= pvMap.x && x <= pvMap.x + pvMap.w && y >= pvMap.y && y <= pvMap.y + pvMap.h) drag = { logo: true, dx: x - pvMap.x, dy: y - pvMap.y };
+  else return;
+  pv.setPointerCapture(ev.pointerId); ev.preventDefault();
+});
+pv.addEventListener('pointermove', (ev) => {
+  if (!drag) return;
+  const [x, y] = pvXY(ev);
+  if (drag.box) { drag.x1 = x; drag.y1 = y; }
+  else {
+    const M = pvMap, X = (x - drag.dx) / M.k, Y = (y - drag.dy) / M.k;
+    logoPos = { ax: clamp((X - M.m) / Math.max(1, M.W - M.lw - 2 * M.m), 0, 1), ay: clamp((Y - M.m) / Math.max(1, M.H - M.lh - 2 * M.m), 0, 1) };
+  }
+  schedule();
+});
+pv.addEventListener('pointerup', () => {
+  if (drag && drag.box && drag.x1 != null) {
+    const x = Math.min(drag.x0, drag.x1) / pv.width, y = Math.min(drag.y0, drag.y1) / pv.height, w = Math.abs(drag.x1 - drag.x0) / pv.width, h = Math.abs(drag.y1 - drag.y0) / pv.height;
+    if (w > 0.01 && h > 0.01) boxes.push({ x, y, w, h });
+  }
+  if (drag) { drag = null; saveEd(); schedule(); }
+});
+
+// ---- controls ----
+const EC = $('editcard'), ED_KEY = 'vd-edit';
+const fields = () => [...EC.querySelectorAll('input[id],select[id],textarea[id]')].filter((el) => el.type !== 'file' && el.id !== 'vd-pvs');
+const DEFAULTS = Object.fromEntries(fields().map((el) => [el.id, el.type === 'checkbox' ? el.checked : el.value]));
+function saveEd() {
+  try {
+    const o = Object.fromEntries(fields().map((el) => [el.id, el.type === 'checkbox' ? el.checked : el.value]));
+    o._pos = logoPos; o._boxes = boxes;
+    o._logo = logoURL && logoURL.length < 1.5e6 ? logoURL : null;
+    localStorage.setItem(ED_KEY, JSON.stringify(o));
+  } catch {}
+}
+function setFields(o) { for (const el of fields()) if (el.id in o) { if (el.type === 'checkbox') el.checked = !!o[el.id]; else el.value = o[el.id]; } }
+function useLogo(url) {
+  const img = new Image();
+  img.onload = () => { logoImg = img; logoURL = url; saveEd(); schedule(); };
+  img.onerror = () => { logoImg = null; logoURL = null; $('logo').value = ''; alertBox('This picture could not be opened. Use a PNG, JPG, WebP or SVG file.'); };
+  img.src = url;
+}
+const alertBox = (t) => { $('err').textContent = t; $('err').hidden = false; $('prog').hidden = false; };
+try {
+  const o = JSON.parse(localStorage.getItem(ED_KEY) || 'null');
+  if (o) { setFields(o); if (o._pos) logoPos = o._pos; if (Array.isArray(o._boxes)) boxes = o._boxes; if (o._logo) useLogo(o._logo); }
+} catch {}
+EC.addEventListener('input', () => { saveEd(); schedule(); });
+EC.addEventListener('change', async (ev) => {
+  const t = ev.target;
+  if (t.id === 'vd-logo' && t.files[0]) {
+    const fr = new FileReader(); fr.onload = () => useLogo(fr.result); fr.readAsDataURL(t.files[0]);
+  }
+  if (t.id === 'vd-srt') {
+    srtSegs = null;
+    if (t.files[0]) { srtSegs = parseSrt(await t.files[0].text()); if (!srtSegs.length) { srtSegs = null; t.value = ''; alertBox('No subtitles were found in this file. Use an .srt or .vtt file.'); } }
+  }
+  saveEd(); schedule();
+});
+EC.addEventListener('click', (ev) => {
+  const b = ev.target.closest('button'); if (!b) return;
+  const id = b.dataset.clear;
+  if (id) { $(id).value = ''; if (id === 'logo') { logoImg = null; logoURL = null; } if (id === 'srt') srtSegs = null; }
+  else if (b.dataset.ax != null) logoPos = { ax: +b.dataset.ax, ay: +b.dataset.ay };
+  else if (b.id === 'vd-bdraw') drawMode = !drawMode;
+  else if (b.id === 'vd-bclear') { boxes = []; drawMode = false; }
+  else if (b.id === 'vd-setstart') $('tstart').value = mmss(+$('pvs').value);
+  else if (b.id === 'vd-setend') $('tend').value = mmss(+$('pvs').value);
+  else if (b.id === 'vd-creset') setFields(Object.fromEntries(['cbri', 'ccon', 'csat', 'chue', 'cwarm', 'csharp', 'csoft', 'cfx', 'cstd', 'crange'].map((k) => ['vd-' + k, DEFAULTS['vd-' + k]])));
+  else if (b.id === 'vd-edreset') {
+    setFields(DEFAULTS); boxes = []; drawMode = false; logoImg = null; logoURL = null; logoPos = { ax: 1, ay: 0 }; srtSegs = null;
+    for (const el of EC.querySelectorAll('input[type=file]')) el.value = '';
+  } else return;
+  saveEd(); schedule();
+});
+document.querySelectorAll('input[name=pic], #vd-qsize').forEach((el) => el.addEventListener('change', schedule));
+function parseSrt(t) {
+  return t.replace(/\r/g, '').split(/\n\s*\n/).map((b) => {
+    const m = b.match(/((?:\d+:)?\d+:\d+[,.]\d+)\s*-->\s*((?:\d+:)?\d+:\d+[,.]\d+)[^\n]*\n([\s\S]*)/);
+    return m && { s: tsec(m[1]), e: tsec(m[2]), tr: m[3].replace(/<[^>]+>/g, '').trim() };
+  }).filter((x) => x && x.tr && x.e > x.s);
+}
+schedule();
+try { if (localStorage.getItem('vd-debug')) window.vdTest = { buildVideo, render, toWav, edits, getFF, ffLog: () => ffLog, call, stop }; } catch {} // for the automatic tests
+
+// ---- more files from the result: a picture, a GIF, the sound, every frame ----
+async function resultBlob() { return lastOut.blob || (await fetch(API + '/api/job/' + lastOut.job + '/file')).blob(); }
+$('more').addEventListener('click', async (ev) => {
+  const kind = ev.target.dataset.m; if (!kind || !lastOut || running) return;
+  const base = lastOut.name.replace(/\.[^.]+$/, ''), pl = $('player').querySelector('video'), at = pl ? pl.currentTime || 0 : 0;
+  busy(true); $('err').hidden = true; $('prog').hidden = false; plan(['more']); mark('more');
+  let f;
+  try {
+    f = await getFF();
+    await f.unmount('/mo').catch(() => {});
+    await f.createDir('/mo').catch(() => {});
+    await f.mount('WORKERFS', { blobs: [{ name: 'r.mp4', data: await resultBlob() }] }, '/mo');
+    const take = async (nm, type, label, dl) => {
+      const d = await f.readFile(nm); await f.deleteFile(nm).catch(() => {});
+      const blob = new Blob([d.buffer], { type }); addOut(blob, dl, `${label}, ${(blob.size / 1e6).toFixed(1)} MB`);
+    };
+    if (kind === 'jpg') { // ffmpeg makes a PNG (its JPEG encoder crashes in the browser build); the browser turns it into a JPEG
+      await run(['-ss', at.toFixed(3), '-i', '/mo/r.mp4', '-frames:v', '1', '-update', '1', 'm.png']);
+      const d = await f.readFile('m.png'); await f.deleteFile('m.png').catch(() => {});
+      const bmp = await createImageBitmap(new Blob([d.buffer], { type: 'image/png' })), cv = canvas(bmp.width, bmp.height);
+      cv.getContext('2d').drawImage(bmp, 0, 0); bmp.close();
+      const blob = await new Promise((r) => cv.toBlob(r, 'image/jpeg', 0.92));
+      addOut(blob, `${base}-${Math.round(at)}s.jpg`, `Picture (.jpg), ${(blob.size / 1e6).toFixed(1)} MB`);
+    }
+    else if (kind === 'gif') {
+      await run(['-ss', at.toFixed(3), '-t', '6', '-i', '/mo/r.mp4', '-vf', 'fps=12,scale=480:-2:flags=lanczos,split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4', '-loop', '0', 'm.gif'], true);
+      await take('m.gif', 'image/gif', 'GIF', `${base}-${Math.round(at)}s.gif`);
+    } else if (kind === 'mp3') {
+      await run(['-i', '/mo/r.mp4', '-vn', '-c:a', 'libmp3lame', '-q:a', '2', 'm.mp3'], true).catch(() => { throw new Error('This video has no sound.'); });
+      await take('m.mp3', 'audio/mpeg', 'Sound (.mp3)', base + '.mp3');
+    } else if (kind === 'zip') {
+      const z = $('zfps').value;
+      await f.createDir('/fr').catch(() => {});
+      await run(['-i', '/mo/r.mp4', ...(z === 'all' ? [] : ['-vf', `fps=${z}`]), '-frames:v', '1500', '/fr/%05d.png'], true);
+      const names = (await f.listDir('/fr')).filter((x) => !x.isDir).map((x) => x.name).sort(), files = {};
+      for (const n of names) { files[n] = await f.readFile('/fr/' + n); await f.deleteFile('/fr/' + n).catch(() => {}); }
+      const { zipSync } = await import('https://cdn.jsdelivr.net/npm/fflate@0.8.2/esm/browser.js');
+      const blob = new Blob([zipSync(files, { level: 0 })], { type: 'application/zip' });
+      addOut(blob, base + '-frames.zip', `${names.length} frames (.zip), ${(blob.size / 1e6).toFixed(0)} MB`);
+      if (names.length >= 1500) note('Only the first 1500 frames were saved. Choose fewer frames a second for the whole video.');
+    }
+    finish(); log('File ready.');
+  } catch (err) { fail(err); }
+  if (f) await f.unmount('/mo').catch(() => {});
+  busy(false);
+});
 </script>
 </body>
 </html>
