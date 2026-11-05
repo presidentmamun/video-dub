@@ -44,6 +44,7 @@ def run(folder, log, stop):
 
 def job(folder):
     sys.path.insert(0, asr.PYLIB)
+    asr.cuda_paths()
     import ctranslate2, sentencepiece
     a = json.load(open(os.path.join(folder, 'args.json'), encoding='utf-8'))
     if not os.path.isfile(os.path.join(MODEL, 'model.bin')):
@@ -56,8 +57,9 @@ def job(folder):
     if ctranslate2.get_cuda_device_count() > 0:
         try:
             tr, where = ctranslate2.Translator(MODEL, device='cuda', compute_type='int8_float16'), 'NVIDIA graphics card'
+            tr.translate_batch([['eng_Latn', '▁Hi', '</s>']], target_prefix=[['ben_Beng']], max_decoding_length=4)  # a missing CUDA library shows up only here
         except Exception:
-            tr = None
+            tr, where = None, 'processor'
     if tr is None:
         tr = ctranslate2.Translator(MODEL, device='cpu', compute_type='int8', intra_threads=os.cpu_count() or 4)
     sp = sentencepiece.SentencePieceProcessor(model_file=os.path.join(MODEL, 'sentencepiece.bpe.model'))

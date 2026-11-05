@@ -17,18 +17,51 @@ SIZES = {'onnx-community/whisper-base': 'base', 'onnx-community/whisper-small': 
 SR = 16000
 
 
+CUDA_LIB = os.path.join(HERE, 'pylib-cuda')  # NVIDIA's cuBLAS for CTranslate2, our own copy (no CUDA install needed)
+
+
+def has_nvidia():
+    try:
+        return subprocess.run(['nvidia-smi', '-L'], capture_output=True, timeout=10, creationflags=NOWIN).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def missing():
-    return [] if os.path.isdir(os.path.join(PYLIB, 'faster_whisper')) else ['speech recognition (about 330 MB)']
+    need = [] if os.path.isdir(os.path.join(PYLIB, 'faster_whisper')) else ['speech recognition (about 330 MB)']
+    if has_nvidia() and not os.path.isdir(os.path.join(CUDA_LIB, 'nvidia', 'cublas')):
+        need.append('NVIDIA libraries (about 550 MB)')
+    return need
+
+
+def pip(target, pkgs, what, log):
+    log(f'Setting up {what} (one time)...', 0)
+    r = subprocess.run([sys.executable, '-m', 'pip', 'install', '--disable-pip-version-check', '--target', target, *pkgs],
+                       capture_output=True, text=True, creationflags=NOWIN)
+    if r.returncode != 0:
+        raise RuntimeError(f'Could not install {what}:\n' + (r.stderr or r.stdout)[-600:])
 
 
 def setup(log):
-    if not missing():
-        return
-    log('Setting up speech recognition (about 330 MB, one time)...', 0)
-    r = subprocess.run([sys.executable, '-m', 'pip', 'install', '--disable-pip-version-check', '--target', PYLIB, 'faster-whisper'],
-                       capture_output=True, text=True, creationflags=NOWIN)
-    if r.returncode != 0:
-        raise RuntimeError('Could not install speech recognition:\n' + (r.stderr or r.stdout)[-600:])
+    if not os.path.isdir(os.path.join(PYLIB, 'faster_whisper')):
+        pip(PYLIB, ['faster-whisper'], 'speech recognition (about 330 MB)', log)
+    if has_nvidia() and not os.path.isdir(os.path.join(CUDA_LIB, 'nvidia', 'cublas')):
+        try:
+            pip(CUDA_LIB, ['nvidia-cublas-cu12'], 'the NVIDIA libraries (about 550 MB)', log)
+        except RuntimeError:
+            pass  # then the processor is used
+
+
+def cuda_paths():
+    """Let CTranslate2 find our cuBLAS (it loads it by name, from PATH)."""
+    import glob
+    dirs = glob.glob(os.path.join(CUDA_LIB, 'nvidia', '*', 'bin'))
+    for d in dirs:
+        try:
+            os.add_dll_directory(d)
+        except (OSError, AttributeError):
+            pass
+    os.environ['PATH'] = os.pathsep.join(dirs + [os.environ.get('PATH', '')])
 
 
 def run(folder, log, stop):
@@ -85,6 +118,7 @@ def to_bengali(t):  # Whisper sometimes writes Bengali in Devanagari letters; th
 
 def job(folder):
     sys.path.insert(0, PYLIB)
+    cuda_paths()
     import numpy as np
     from faster_whisper import WhisperModel
     a = json.load(open(os.path.join(folder, 'args.json'), encoding='utf-8'))
@@ -96,8 +130,9 @@ def job(folder):
         import ctranslate2
         if ctranslate2.get_cuda_device_count() > 0:
             model, where = WhisperModel(size, device='cuda', compute_type='float16', download_root=MODELS), 'NVIDIA graphics card'
+            list(model.transcribe(np.zeros(SR, np.float32), language='en', beam_size=1)[0])  # a missing CUDA library shows up only here
     except Exception:
-        model = None
+        model, where = None, 'processor'
     if model is None:
         model = WhisperModel(size, device='cpu', compute_type='int8', cpu_threads=os.cpu_count() or 4, download_root=MODELS)
     langs = a.get('langs') or {}  # page code -> Whisper language name

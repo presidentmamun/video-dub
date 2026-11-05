@@ -13,3 +13,4 @@ upscale/pylib/
 upscale/models/
 upscale/pylib-asr/
 upscale/pylib-tts/
+upscale/pylib-cuda/
