@@ -11,6 +11,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, 'upscale'))
 import upscale as up  # noqa: E402
 import edit as ed  # noqa: E402
+import separate as sp  # noqa: E402
 
 PORT = int(os.environ.get('VD_PORT', 8000))
 # websites whose Video Dubbing page may use this helper (besides the page served here); more with VD_ORIGINS="https://a,https://b"
@@ -81,7 +82,8 @@ def status():
     if not up.tool_path():
         need.append('Real-ESRGAN (45-50 MB)')
     sizes = ['2k', '4k'] + (['8k'] if GPU and GPU['vram_gb'] >= 6 else [])  # vram 0 = unknown: no 8K
-    return {'gpu': GPU, 'sizes': sizes if GPU and not blocker else [], 'setup': need, 'blocker': blocker, 'edit': ed.status()}
+    return {'gpu': GPU, 'sizes': sizes if GPU and not blocker else [], 'setup': need, 'blocker': blocker, 'edit': ed.status(),
+            'sep': {'ready': bool(up.FFMPEG or up.FF_URL), 'setup': sp.missing()}}
 
 
 def start_job(jid, task, name):
@@ -200,6 +202,18 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             if p[3:4] == ['file']:  # the finished video (no custom header: used by <video> and download links)
                 if j['state'] != 'done':
                     return self.send_error(404)
+                part = dict(urllib.parse.parse_qsl(u.query)).get('part')
+                if part:  # the voice/music split: two raw sound files
+                    f = os.path.join(j['out'], part + '.f32') if part in ('bg', 'vox') and os.path.isdir(j['out']) else None
+                    if not f or not os.path.isfile(f):
+                        return self.send_error(404)
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'application/octet-stream')
+                    self.send_header('Content-Length', str(os.path.getsize(f)))
+                    self.end_headers()
+                    with open(f, 'rb') as fh:
+                        shutil.copyfileobj(fh, self.wfile, 1 << 20)
+                    return
                 size = os.path.getsize(j['out'])
                 self.send_response(200)
                 self.send_header('Content-Type', 'video/mp4')
@@ -210,7 +224,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     shutil.copyfileobj(f, self.wfile, 1 << 20)
                 return
             info = {k: j[k] for k in ('state', 'text', 'frac')}
-            if j['state'] == 'done':
+            if j['state'] == 'done' and os.path.isfile(j['out']):
                 info['size'] = os.path.getsize(j['out'])
             return self.send_json(info)
         self.send_error(404)
@@ -221,6 +235,23 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if p[:1] != ['api'] or not self.api_ok():
             return
         q = dict(urllib.parse.parse_qsl(u.query))
+        if p[1:2] == ['sep']:  # voice/music split on this PC's graphics card (upscale/separate.py)
+            jid = uuid.uuid4().hex[:12]
+            d = os.path.join(JOBS_DIR, jid)
+            os.makedirs(d)
+            name = urllib.parse.unquote(self.headers.get('X-Name', 'video.mp4'))
+            ext = os.path.splitext(name)[1].lower()
+            src = os.path.join(d, 'input' + (ext if ext.isascii() and 1 < len(ext) <= 5 else '.mp4'))
+            left = int(self.headers.get('Content-Length', 0))
+            with open(src, 'wb') as f:
+                while left > 0:
+                    chunk = self.rfile.read(min(left, 1 << 20))
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    left -= len(chunk)
+            start_job(jid, lambda log, stop: sp.separate(src, os.path.join(d, 'sep'), log, stop), 'sep')
+            return self.send_json({'id': jid})
         if p[1:2] in (['upscale'], ['shrink']):
             name = urllib.parse.unquote(self.headers.get('X-Name', 'video.mp4'))  # in a header, not the URL
             stem = os.path.splitext(os.path.basename(name))[0]

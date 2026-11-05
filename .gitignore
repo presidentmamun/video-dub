@@ -9,3 +9,5 @@ upscale/ffmpeg.zip
 __pycache__/
 test-results/
 .claude/settings.local.json
+upscale/pylib/
+upscale/models/

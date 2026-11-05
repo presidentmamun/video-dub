@@ -459,7 +459,7 @@ async function fetchModel(url, label) {
   if (c) try { await c.put(url, new Response(blob)); } catch {}
   return new Uint8Array(await blob.arrayBuffer());
 }
-let ort, sess;
+let ort, sess, sepEP = '';
 
 const ops = {
   async asr({ audio, model, language, task, windows, langs, multi, transcribeOnly = [] }) {
@@ -604,19 +604,27 @@ const ops = {
       ort = await import(ORT + 'ort.all.bundle.min.mjs');
       ort.env.wasm.wasmPaths = ORT; ort.env.wasm.numThreads = 1;
       const buf = await fetchModel(SEP_URL, 'Voice/music model');
-      sess = await ort.InferenceSession.create(buf, { executionProviders: (await hasGPU()) ? ['webgpu', 'wasm'] : ['wasm'] });
+      sepEP = (await hasGPU()) ? 'webgpu' : 'wasm';
+      if (ort.env.webgpu) ort.env.webgpu.powerPreference = 'high-performance'; // the strong graphics card, not the built-in one
+      sess = await ort.InferenceSession.create(buf, { executionProviders: sepEP === 'webgpu' ? ['webgpu', 'wasm'] : ['wasm'] });
     }
     const n = l.length, pad = GEN - (n % GEN), tot = TRIM + n + pad + TRIM;
     const P = [new Float32Array(tot), new Float32Array(tot)]; P[0].set(l, TRIM); P[1].set(r, TRIM);
     const out = [new Float32Array(n + pad), new Float32Array(n + pad)], steps = (n + pad) / GEN;
+    const tm = [0, 0, 0]; // time spent in: STFT, the model, inverse STFT (shown in the details log)
     for (let i = 0, s = 0; i < n + pad; i += GEN, s++) {
       const inp = new Float32Array(4 * DF * DT);
+      let t = performance.now();
       for (let c = 0; c < 2; c++) stft(P[c].subarray(i, i + CH), inp, c);
+      tm[0] += performance.now() - t; t = performance.now();
       const res = await sess.run({ [sess.inputNames[0]]: new ort.Tensor('float32', inp, [1, 4, DF, DT]) });
       const o = res[sess.outputNames[0]].data;
+      tm[1] += performance.now() - t; t = performance.now();
       for (let c = 0; c < 2; c++) out[c].set(istft(o, c).subarray(TRIM, CH - TRIM), i);
+      tm[2] += performance.now() - t;
       step('Separating voice and music', part * steps + s + 1, parts * steps);
     }
+    postMessage({ type: 'msg', text: `Voice/music part ${part + 1}: ${steps} steps · STFT ${(tm[0] / 1000).toFixed(1)} s, model ${(tm[1] / 1000).toFixed(1)} s (${sepEP}), inverse ${(tm[2] / 1000).toFixed(1)} s` });
     return { l: out[0].subarray(0, n), r: out[1].subarray(0, n) };
   },
 };
@@ -822,7 +830,7 @@ async function findHelper(quiet) {
   if (!location.protocol.startsWith('http')) { info.textContent = 'Not available here: open the page with serve.cmd to use this computer\'s graphics card.'; return; }
   try {
     const s = await (await api('/api/status')).json();
-    serverOK = true; $('helper').hidden = $('hhow').hidden = true; helperEdit = s.edit || null; schedule();
+    serverOK = true; $('helper').hidden = $('hhow').hidden = true; helperEdit = s.edit || null; helperSep = s.sep || null; schedule();
     try { localStorage.setItem('vd-helper', '1'); } catch {}
     if (!s.gpu) { info.textContent = 'Not available: no NVIDIA, AMD or Apple graphics was found on this computer.'; return; }
     if (s.blocker) { info.textContent = `${s.gpu.name}: not available yet, ${s.blocker}`; return; }
@@ -1290,7 +1298,24 @@ function resetOut() {
 }
 
 // ---- background track (cached between rebuilds) ----
+async function separateHelper() { // the same split on this PC's graphics card, through the helper (upscale/separate.py)
+  stat('Sending the sound to the helper…');
+  const r = await api('/api/sep', { method: 'POST', headers: { 'X-Name': encodeURIComponent(file.name) }, body: file });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || 'The helper could not start.');
+  const s = await follow(j.id);
+  if (s.text) log('Helper: ' + s.text);
+  const get = async (part, n) => { // fit to the length this page expects
+    const a = new Float32Array(await (await fetch(API + `/api/job/${j.id}/file?part=${part}`)).arrayBuffer()), o = new Float32Array(n);
+    o.set(a.subarray(0, n)); return o;
+  };
+  return { bg: await get('bg', Math.ceil(dur * SR)), vox: await get('vox', Math.ceil(dur * 16000)) };
+}
 async function separate() { // returns { bg: music at SR, vox: voices at 16 kHz }
+  if (serverOK && helperSep && helperSep.ready) {
+    try { return await separateHelper(); }
+    catch (e) { if (e.cancel) throw e; log('The helper could not split the sound (' + e.message + '), so the browser does it.'); }
+  }
   const parts = Math.ceil(dur / SEP_WIN), bg = new Float32Array(Math.ceil(dur * SR)), vox = new Float32Array(Math.ceil(dur * 16000));
   for (let k = 0; k < parts; k++) {
     const t = k * SEP_WIN, ss = Math.max(0, t - SEP_MARGIN), len = Math.min(dur, t + SEP_WIN + SEP_MARGIN) - ss;
@@ -2005,7 +2030,7 @@ async function recipe(e, J, B, { wav = null, subs = null, audioOnly = false }) {
 }
 
 // ---- which way to make the edit ----
-let helperEdit = null; // what the helper said it can do: { ready, gpu, label }
+let helperEdit = null, helperSep = null; // what the helper said it can do: { ready, gpu, label }
 const hasWebGL2 = (() => { try { return !!document.createElement('canvas').getContext('webgl2'); } catch { return false; } })();
 function gpuBlocker(e) { // why the graphics-card way cannot do these changes (null = it can)
   if (!self.VideoEncoder || !self.VideoDecoder || !hasWebGL2) return 'this browser has no video encoder for it';
@@ -2442,7 +2467,7 @@ function parseSrt(t) {
   }).filter((x) => x && x.tr && x.e > x.s);
 }
 schedule();
-try { if (localStorage.getItem('vd-debug')) window.vdTest = { buildVideo, render, toWav, edits, getFF, ffLog: () => ffLog, call, stop }; } catch {} // for the automatic tests
+try { if (localStorage.getItem('vd-debug')) window.vdTest = { buildVideo, render, toWav, edits, getFF, ffLog: () => ffLog, call, stop, separate, setDur: (d) => (dur = d), setHelper: (v) => (serverOK = v) }; } catch {} // for the automatic tests
 
 // ---- more files from the result: a picture, a GIF, the sound, every frame ----
 async function resultBlob() { return lastOut.blob || (await fetch(API + '/api/job/' + lastOut.job + '/file')).blob(); }

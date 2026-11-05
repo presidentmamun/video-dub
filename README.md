@@ -38,6 +38,11 @@ on `127.0.0.1:8000`, and the website's page talks to it (Chrome asks once to all
 
 The helper answers only its own page and the websites in `ORIGINS` in `server.py` (add more with `VD_ORIGINS`).
 
+When the helper is connected it also separates voices from music (`upscale/separate.py`): the same model and steps
+as the browser, on the graphics card through onnxruntime (DirectML on Windows, CoreML on macOS, CUDA or CPU on Linux).
+On an RTX 3070 Ti a 52-minute video takes about 3 minutes instead of about 20 in the browser. The first time it installs
+onnxruntime and numpy into `upscale/pylib` and downloads the model (67 MB) into `upscale/models`.
+
 The browser AI models in `models/` are Real-ESRGAN's compact models (realesr-animevideov3, realesr-general-x4v3),
 converted to ONNX.
 
