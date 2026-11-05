@@ -12,6 +12,11 @@ sys.path.insert(0, os.path.join(HERE, 'upscale'))
 import upscale as up  # noqa: E402
 import edit as ed  # noqa: E402
 import separate as sp  # noqa: E402
+import asr  # noqa: E402
+import mt  # noqa: E402
+import spk  # noqa: E402
+import tts  # noqa: E402
+AI_STEPS = {'asr': asr, 'mt': mt, 'spk': spk, 'tts': tts}  # AI steps the helper can do, each in its own process
 
 PORT = int(os.environ.get('VD_PORT', 8000))
 # websites whose Video Dubbing page may use this helper (besides the page served here); more with VD_ORIGINS="https://a,https://b"
@@ -83,7 +88,8 @@ def status():
         need.append('Real-ESRGAN (45-50 MB)')
     sizes = ['2k', '4k'] + (['8k'] if GPU and GPU['vram_gb'] >= 6 else [])  # vram 0 = unknown: no 8K
     return {'gpu': GPU, 'sizes': sizes if GPU and not blocker else [], 'setup': need, 'blocker': blocker, 'edit': ed.status(),
-            'sep': {'ready': bool(up.FFMPEG or up.FF_URL), 'setup': sp.missing()}}
+            'sep': {'ready': bool(up.FFMPEG or up.FF_URL), 'setup': sp.missing()},
+            'ai': {k: {'ready': True, 'setup': m.missing()} for k, m in AI_STEPS.items()}}
 
 
 def start_job(jid, task, name):
@@ -203,8 +209,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 if j['state'] != 'done':
                     return self.send_error(404)
                 part = dict(urllib.parse.parse_qsl(u.query)).get('part')
-                if part:  # the voice/music split: two raw sound files
-                    f = os.path.join(j['out'], part + '.f32') if part in ('bg', 'vox') and os.path.isdir(j['out']) else None
+                if part:  # results kept as files in the job folder: the voice/music split, AI answers
+                    names = {'bg': 'bg.f32', 'vox': 'vox.f32', 'result': 'result.json', 'audio': 'audio.f32'}
+                    f = os.path.join(j['out'], names[part]) if part in names and os.path.isdir(j['out']) else None
                     if not f or not os.path.isfile(f):
                         return self.send_error(404)
                     self.send_response(200)
@@ -235,6 +242,31 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if p[:1] != ['api'] or not self.api_ok():
             return
         q = dict(urllib.parse.parse_qsl(u.query))
+        if p[1:2] == ['ai'] and len(p) > 2 and p[2] in AI_STEPS:  # AI steps in their own process: body = 4-byte length, JSON, then float32 audio
+            jid = uuid.uuid4().hex[:12]
+            d = os.path.join(JOBS_DIR, jid)
+            os.makedirs(d)
+            left = int(self.headers.get('Content-Length', 0))
+            n = int.from_bytes(self.rfile.read(4), 'little')
+            left -= 4
+            args = self.rfile.read(n)
+            left -= n
+            try:
+                json.loads(args)
+            except ValueError:
+                return self.send_json({'error': 'bad request'}, 400)
+            with open(os.path.join(d, 'args.json'), 'wb') as f:
+                f.write(args)
+            with open(os.path.join(d, 'audio.f32'), 'wb') as f:
+                while left > 0:
+                    chunk = self.rfile.read(min(left, 1 << 20))
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    left -= len(chunk)
+            step = AI_STEPS[p[2]]
+            start_job(jid, lambda log, stop: step.run(d, log, stop), p[2])
+            return self.send_json({'id': jid})
         if p[1:2] == ['sep']:  # voice/music split on this PC's graphics card (upscale/separate.py)
             jid = uuid.uuid4().hex[:12]
             d = os.path.join(JOBS_DIR, jid)

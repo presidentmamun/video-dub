@@ -43,6 +43,20 @@ as the browser, on the graphics card through onnxruntime (DirectML on Windows, C
 On an RTX 3070 Ti a 52-minute video takes about 3 minutes instead of about 20 in the browser. The first time it installs
 onnxruntime and numpy into `upscale/pylib` and downloads the model (67 MB) into `upscale/models`.
 
+Every AI step works the same way: the helper first, on the strongest hardware, else the browser as before.
+
+| Step | Helper (`upscale/…`) | Hardware, first that works |
+|---|---|---|
+| Voices from music | `separate.py`, UVR MDX-Net | DirectML (NVIDIA, AMD, Intel), CoreML, CUDA, CPU |
+| Speech recognition | `asr.py`, faster-whisper base/small | NVIDIA CUDA, else every CPU core |
+| Speakers | `spk.py`, WavLM base plus SV (full precision) | DirectML, CPU |
+| Translation | `mt.py`, NLLB-200 600M (CTranslate2) | NVIDIA CUDA, else every CPU core |
+| New voices (MMS) | `tts.py`, MMS / VITS | DirectML, CPU |
+| Editing | `edit.py`, ffmpeg | NVENC, AMF, Quick Sync, VideoToolbox, CPU |
+
+Each AI step runs in its own process, so its libraries (in `upscale/pylib` and `upscale/pylib-asr`) never mix and its
+memory is given back when it ends. A 60-second clip dubs from English to Bengali in about 45 seconds on an RTX 3070 Ti.
+
 The browser AI models in `models/` are Real-ESRGAN's compact models (realesr-animevideov3, realesr-general-x4v3),
 converted to ONNX.
 

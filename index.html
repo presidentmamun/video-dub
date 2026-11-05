@@ -830,7 +830,7 @@ async function findHelper(quiet) {
   if (!location.protocol.startsWith('http')) { info.textContent = 'Not available here: open the page with serve.cmd to use this computer\'s graphics card.'; return; }
   try {
     const s = await (await api('/api/status')).json();
-    serverOK = true; $('helper').hidden = $('hhow').hidden = true; helperEdit = s.edit || null; helperSep = s.sep || null; schedule();
+    serverOK = true; $('helper').hidden = $('hhow').hidden = true; helperEdit = s.edit || null; helperSep = s.sep || null; helperAI = s.ai || null; schedule();
     try { localStorage.setItem('vd-helper', '1'); } catch {}
     if (!s.gpu) { info.textContent = 'Not available: no NVIDIA, AMD or Apple graphics was found on this computer.'; return; }
     if (s.blocker) { info.textContent = `${s.gpu.name}: not available yet, ${s.blocker}`; return; }
@@ -839,18 +839,39 @@ async function findHelper(quiet) {
       + (s.setup.length ? ` The first time it sets up ${s.setup.join(' and ')} by itself.` : '');
     $('ai').disabled = false;
     picChange();
+    return true;
   } catch {
     if (LOCAL) { info.textContent = 'Not available here: open the page with serve.cmd to use this computer\'s graphics card.'; return; }
     info.textContent = 'Uses the full power of this computer\'s graphics card. Needs a small free program, the helper, running on this computer.';
     $('helper').hidden = false;
-    if (!quiet) { $('hhow').hidden = false; $('hhow').textContent = 'The helper was not found. Start it (see "Get the helper"), keep its window open, then press "Connect" again. If the browser asks to allow access to this device or local network, choose Allow.'; }
+    if (!quiet) { $('hhow').hidden = false; $('hhow').textContent = 'The helper did not start. The first time, press "Get the helper" and open the file it downloads; after that "Connect" starts the helper by itself. If the browser asks to allow access to this device or local network, choose Allow.'; }
+    return false;
   }
 }
 // on a website, look for the helper only when the user asks (or found it before), so the browser does not ask everyone
 const knewHelper = (() => { try { return localStorage.getItem('vd-helper'); } catch { return null; } })();
 if (LOCAL || knewHelper) findHelper(true);
 else { $('aiinfo').textContent = 'Uses the full power of this computer\'s graphics card. Needs a small free program, the helper, running on this computer.'; $('helper').hidden = false; }
-$('hconnect').onclick = (e) => { e.preventDefault(); $('aiinfo').textContent = 'Looking for the helper…'; findHelper(false); };
+// Connect: when the helper is not running, start it through the videodub:// link that serve.cmd --helper registers on Windows
+$('hconnect').onclick = async (e) => {
+  e.preventDefault();
+  const info = $('aiinfo'), btn = $('hconnect');
+  info.textContent = 'Looking for the helper…';
+  if (await findHelper(true)) return;
+  if (LOCAL || !/Win/.test(navigator.platform || navigator.userAgent)) { findHelper(false); return; }
+  const wait = 'Starting the helper… If the browser asks to open "Video Dubbing helper", choose Open (tick "Always allow" to skip this next time).';
+  info.textContent = wait;
+  const a = document.createElement('a'); a.href = 'videodub://start'; a.click();
+  btn.disabled = true;
+  try {
+    for (let i = 0; i < 40; i++) { // the first start can take a few seconds
+      await new Promise((ok) => setTimeout(ok, 1000));
+      if (await findHelper(true)) return;
+      info.textContent = wait;
+    }
+    findHelper(false);
+  } finally { btn.disabled = false; }
+};
 $('hget').onclick = (e) => {
   e.preventDefault();
   const how = $('hhow'); how.hidden = false;
@@ -1249,7 +1270,7 @@ async function findSpeakers(a16) {
     return a16.slice(Math.round((mid - half) * 16000), Math.round((mid + half) * 16000));
   });
   const f0 = clips.map((c) => (c ? pitch(c, 16000) : 0));
-  const embs = await once('spk', { clips }, clips.filter(Boolean).map((c) => c.buffer));
+  const embs = await spkAny(clips);
   const lab = cluster(embs);
   speakers = [];
   lab.forEach((k, i) => { (speakers[k] ||= { f0s: [] }); if (f0[i]) speakers[k].f0s.push(f0[i]); segs[i].spk = k; });
@@ -1298,6 +1319,61 @@ function resetOut() {
 }
 
 // ---- background track (cached between rebuilds) ----
+// AI steps: the helper first (this PC's graphics card, or every processor core), else the browser
+async function aiHelper(op, args, audio) { // → the JSON answer of an AI step the helper did
+  const head = new TextEncoder().encode(JSON.stringify(args)), n = new Uint8Array(4);
+  new DataView(n.buffer).setUint32(0, head.length, true);
+  const r = await api('/api/ai/' + op, { method: 'POST', body: new Blob([n, head, audio]) });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || 'The helper could not start.');
+  await follow(j.id);
+  return (await fetch(API + `/api/job/${j.id}/file?part=result`)).json();
+}
+async function asrAny(args) {
+  if (serverOK && helperAI && helperAI.asr && helperAI.asr.ready) {
+    try {
+      const { audio, ...rest } = args, r = await aiHelper('asr', rest, audio);
+      log(`Speech recognized by the helper on the ${r.device}`);
+      return r;
+    } catch (e) { if (e.cancel) throw e; log('The helper could not recognize the speech (' + e.message + '), so the browser does it.'); }
+  }
+  return once('asr', args);
+}
+async function mtAny(args) { // → the translated lines
+  if (serverOK && helperAI && helperAI.mt && helperAI.mt.ready) {
+    try { const r = await aiHelper('mt', args, new Uint8Array(0)); log(`Translated by the helper on the ${r.device}`); return r.texts; }
+    catch (e) { if (e.cancel) throw e; log('The helper could not translate (' + e.message + '), so the browser does it.'); }
+  }
+  return once('mt', args);
+}
+async function spkAny(clips) { // → a voice print per line (null for lines too short)
+  if (serverOK && helperAI && helperAI.spk && helperAI.spk.ready) {
+    try {
+      const r = await aiHelper('spk', { lengths: clips.map((c) => (c ? c.length : 0)) }, new Blob(clips.filter(Boolean)));
+      log(`Speakers found by the helper on the ${r.device}`);
+      return r.embs.map((e) => (e ? Float32Array.from(e) : null));
+    } catch (e) { if (e.cancel) throw e; log('The helper could not find the speakers (' + e.message + '), so the browser does it.'); }
+  }
+  return once('spk', { clips }, clips.filter(Boolean).map((c) => c.buffer));
+}
+async function ttsAny(args) { // MMS voices → [{ audio, sr }]
+  if (serverOK && helperAI && helperAI.tts && helperAI.tts.ready) {
+    try {
+      const head = new TextEncoder().encode(JSON.stringify(args)), n = new Uint8Array(4);
+      new DataView(n.buffer).setUint32(0, head.length, true);
+      const r = await api('/api/ai/tts', { method: 'POST', body: new Blob([n, head]) });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || 'The helper could not start.');
+      await follow(j.id);
+      const meta = await (await fetch(API + `/api/job/${j.id}/file?part=result`)).json();
+      const all = new Float32Array(await (await fetch(API + `/api/job/${j.id}/file?part=audio`)).arrayBuffer());
+      log(`Voices made by the helper on the ${meta.device}`);
+      let at = 0;
+      return meta.lengths.map((len) => { const audio = all.slice(at, at + len); at += len; return { audio, sr: meta.sr }; });
+    } catch (e) { if (e.cancel) throw e; log('The helper could not make the voices (' + e.message + '), so the browser does it.'); }
+  }
+  return once('tts', args);
+}
 async function separateHelper() { // the same split on this PC's graphics card, through the helper (upscale/separate.py)
   stat('Sending the sound to the helper…');
   const r = await api('/api/sep', { method: 'POST', headers: { 'X-Name': encodeURIComponent(file.name) }, body: file });
@@ -1375,7 +1451,7 @@ $('start').onclick = async () => {
     mark('asr');
     const windows = speechWindows(a16, dur, src === 'multi' ? 0.5 : 1.5); // several languages: a new piece at every pause
     if (!windows.length) throw new Error('No speech was found in this file.');
-    const r = await once('asr', {
+    const r = await asrAny({
       audio: a16.slice(), model: asr, windows, langs: Object.fromEntries(Object.entries(LANGS).map(([k, v]) => [k, v[2]])),
       language: src === 'auto' || src === 'multi' ? null : LANGS[src][2], task: direct ? 'translate' : 'transcribe', multi: src === 'multi',
       transcribeOnly: src === 'multi' && direct ? ['bn'] : [],
@@ -1398,16 +1474,16 @@ $('start').onclick = async () => {
     if (src === 'multi' && direct && segs.some((c) => c.task === 'transcribe')) { // Bengali lines still need NLLB
       const idx = segs.map((c, i) => (c.task === 'transcribe' ? i : -1)).filter((i) => i >= 0);
       mark('mt');
-      const tr = await once('mt', { texts: idx.map((i) => out[i]), src: idx.map((i) => LANGS[segs[i].lang][1]), tgt: LANGS.en[1] });
+      const tr = await mtAny({ texts: idx.map((i) => out[i]), src: idx.map((i) => LANGS[segs[i].lang][1]), tgt: LANGS.en[1] });
       idx.forEach((i, k) => (out[i] = tr[k]));
     }
     if (!direct) {
       if (src === 'multi') {
         const srcs = segs.map((c) => LANGS[c.lang || 'en'][1]);
-        if (srcs.some((x) => x !== LANGS[tgt][1])) { mark('mt'); out = await once('mt', { texts: out, src: srcs, tgt: LANGS[tgt][1] }); }
+        if (srcs.some((x) => x !== LANGS[tgt][1])) { mark('mt'); out = await mtAny({ texts: out, src: srcs, tgt: LANGS[tgt][1] }); }
       } else {
         const s = src === 'auto' ? (r.found ? r.found.code : guess(out.join(' '))) : src;
-        if (s !== tgt) { mark('mt'); out = await once('mt', { texts: out, src: LANGS[s][1], tgt: LANGS[tgt][1] }); }
+        if (s !== tgt) { mark('mt'); out = await mtAny({ texts: out, src: LANGS[s][1], tgt: LANGS[tgt][1] }); }
       }
     }
     segs.forEach((c, i) => (c.tr = out[i]));
@@ -1439,7 +1515,7 @@ async function makeVoice(fromStart) {
   try {
     const L = LANGS[$('tgt').value], texts = segs.map((s) => s.tr), kv = pickVoices();
     mark('tts');
-    const vs = kv ? await call('kokoro', 'kokoro', { voices: kv, texts }) : await once('tts', { model: L[3], dtype: L[4], texts });
+    const vs = kv ? await call('kokoro', 'kokoro', { voices: kv, texts }) : await ttsAny({ model: L[3], dtype: L[4], texts });
     if (kv) stop('kokoro', 'done'); // free memory
     mark('mix');
     const mix = new Float32Array(Math.ceil(dur * SR)), bg = await background();
@@ -2030,7 +2106,7 @@ async function recipe(e, J, B, { wav = null, subs = null, audioOnly = false }) {
 }
 
 // ---- which way to make the edit ----
-let helperEdit = null, helperSep = null; // what the helper said it can do: { ready, gpu, label }
+let helperEdit = null, helperSep = null, helperAI = null; // what the helper said it can do: { ready, gpu, label }
 const hasWebGL2 = (() => { try { return !!document.createElement('canvas').getContext('webgl2'); } catch { return false; } })();
 function gpuBlocker(e) { // why the graphics-card way cannot do these changes (null = it can)
   if (!self.VideoEncoder || !self.VideoDecoder || !hasWebGL2) return 'this browser has no video encoder for it';
