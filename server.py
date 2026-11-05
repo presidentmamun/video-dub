@@ -12,6 +12,8 @@ sys.path.insert(0, os.path.join(HERE, 'upscale'))
 import upscale as up  # noqa: E402
 
 PORT = int(os.environ.get('VD_PORT', 8000))
+# websites whose Video Dubbing page may use this helper (besides the page served here); more with VD_ORIGINS="https://a,https://b"
+ORIGINS = {'https://iwate-bd.org', 'https://www.iwate-bd.org'} | {o.strip().rstrip('/') for o in os.environ.get('VD_ORIGINS', '').split(',') if o.strip()}
 JOBS_DIR = os.path.join(HERE, 'upscale', 'jobs')
 JOBS, LOCK = {}, threading.Lock()
 NOWIN = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
@@ -119,9 +121,30 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(b)
 
+    def origin_ok(self):
+        o = self.headers.get('Origin')
+        return not o or o in ORIGINS or urllib.parse.urlparse(o).hostname in ('localhost', '127.0.0.1')
+
+    def end_headers(self):
+        o = self.headers.get('Origin') if hasattr(self, 'headers') else None
+        if o and o in ORIGINS:  # only the listed websites may read the answers
+            self.send_header('Access-Control-Allow-Origin', o)
+            self.send_header('Vary', 'Origin')
+        super().end_headers()
+
+    def do_OPTIONS(self):  # the browser asks first before a website may send the X-VD header
+        if not self.origin_ok():
+            return self.send_error(403)
+        self.send_response(204)
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST')
+        self.send_header('Access-Control-Allow-Headers', 'X-VD, X-Name, Content-Type')
+        self.send_header('Access-Control-Allow-Private-Network', 'true')
+        self.send_header('Access-Control-Max-Age', '600')
+        self.end_headers()
+
     def api_ok(self):
-        # The page sends this header; other websites cannot (a custom header needs CORS, which we never allow)
-        if self.headers.get('X-VD') != '1':
+        # The page sends this header; other websites cannot (a custom header needs CORS, allowed only for ORIGINS)
+        if self.headers.get('X-VD') != '1' or not self.origin_ok():
             self.send_json({'error': 'forbidden'}, 403)
             return False
         return True
@@ -140,6 +163,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 return self.send_error(404)
             return super().do_GET()
         if p[1:2] == ['status']:
+            if not self.api_ok():
+                return
             return self.send_json(status())
         if p[1:2] == ['job']:
             j = self.job(p)
@@ -227,7 +252,9 @@ if __name__ == '__main__':
     print(f'Video Dubbing is running at {url}')
     print(f'Graphics card for AI upscaling: {GPU["name"] + " (" + str(GPU["vram_gb"]) + " GB)" if GPU else "none found (browser options still work)"}')
     print('Keep this window open while you use the page. Close it to stop.')
-    if '--no-browser' not in sys.argv:
+    if '--helper' in sys.argv:
+        print('Helper mode: go back to the Video Dubbing page and press "Connect to the helper".')
+    elif '--no-browser' not in sys.argv:
         webbrowser.open(url)
     try:
         srv.serve_forever()
