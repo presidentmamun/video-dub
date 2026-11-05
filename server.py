@@ -110,8 +110,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *a, **k):
         super().__init__(*a, directory=HERE, **k)
 
-    def log_message(self, *a):
-        pass
+    def log_message(self, fmt, *a):
+        if os.environ.get('VD_DEBUG'):  # VD_DEBUG=1: show each request
+            print(self.command, self.path, '| Origin:', self.headers.get('Origin'), file=sys.stderr)
 
     def send_json(self, obj, code=200):
         b = json.dumps(obj).encode()
@@ -247,7 +248,14 @@ def clean_old_jobs():
 
 if __name__ == '__main__':
     clean_old_jobs()
-    srv = http.server.ThreadingHTTPServer(('127.0.0.1', PORT), Handler)
+    # never share the port with an older copy that is still running (Windows lets two programs bind it otherwise)
+    http.server.ThreadingHTTPServer.allow_reuse_address = sys.platform != 'win32'
+    try:
+        srv = http.server.ThreadingHTTPServer(('127.0.0.1', PORT), Handler)
+    except OSError:
+        print(f'Port {PORT} is already in use: Video Dubbing (or another program) is already running.')
+        print(f'Close the other window, or open http://localhost:{PORT}/ if it is Video Dubbing.')
+        sys.exit(1)
     url = f'http://localhost:{PORT}/'
     print(f'Video Dubbing is running at {url}')
     print(f'Graphics card for AI upscaling: {GPU["name"] + " (" + str(GPU["vram_gb"]) + " GB)" if GPU else "none found (browser options still work)"}')
