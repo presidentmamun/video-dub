@@ -5,7 +5,7 @@ onnxruntime DirectML (NVIDIA, AMD or Intel; the strongest one) or the processor.
 
   python spk.py JOB_FOLDER      reads args.json {lengths} + audio.f32 (the clips one after another), writes result.json
 """
-import json, os, sys, urllib.request
+import json, os, sys, time, urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)  # run with python -I, which leaves this folder out
@@ -52,7 +52,9 @@ def job(folder):
         os.makedirs(os.path.dirname(MODEL), exist_ok=True)
         urllib.request.urlretrieve(URL, MODEL + '.part')
         os.replace(MODEL + '.part', MODEL)
+    t0 = time.time()
     s, where = session(ort, MODEL)
+    t_load = time.time() - t0
     names = {i.name for i in s.get_inputs()}
     audio = np.fromfile(os.path.join(folder, 'audio.f32'), np.float32)
     out, at, n = [], 0, len(a['lengths'])
@@ -69,7 +71,8 @@ def job(folder):
             emb = dict(zip([o.name for o in s.get_outputs()], e)).get('embeddings', e[-1])
             out.append(emb.reshape(-1).astype(float).tolist())
         asr.say(f'Finding the speakers on the {where}: {i + 1} of {n}', (i + 1) / max(1, n))
-    json.dump({'embs': out, 'device': where}, open(os.path.join(folder, 'result.json'), 'w'))
+    # how long loading and running took: kept to find out why a job is sometimes slow
+    json.dump({'embs': out, 'device': where, 'seconds': {'load': round(t_load, 1), 'run': round(time.time() - t0 - t_load, 1)}}, open(os.path.join(folder, 'result.json'), 'w'))
 
 
 if __name__ == '__main__':

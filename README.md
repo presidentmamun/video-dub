@@ -52,9 +52,10 @@ Every AI step works the same way: the helper first, on the strongest hardware, e
 | Speakers | `spk.py`, WavLM base plus SV (full precision) | DirectML, CPU |
 | Translation | `mt.py`, NLLB-200 600M (CTranslate2) | NVIDIA CUDA, else every CPU core |
 | New voices (MMS) | `tts.py`, MMS / VITS | DirectML, CPU |
+| New voices (English, Kokoro) | `kokoro.py`, Kokoro 82M v1.0 (full precision) | DirectML if it runs there, else every CPU core |
 | Editing | `edit.py`, ffmpeg | NVENC, AMF, Quick Sync, VideoToolbox, CPU |
 
-Each AI step runs in its own process, so its libraries (in `upscale/pylib` and `upscale/pylib-asr`) never mix and its
+Each AI step runs in its own process, so its libraries (in `upscale/pylib`, `upscale/pylib-asr` and `upscale/pylib-tts`) never mix and its
 memory is given back when it ends. A 60-second clip dubs from English to Bengali in about 45 seconds on an RTX 3070 Ti.
 
 The browser AI models in `models/` are Real-ESRGAN's compact models (realesr-animevideov3, realesr-general-x4v3),

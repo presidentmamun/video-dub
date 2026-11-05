@@ -1350,18 +1350,18 @@ async function spkAny(clips) { // → a voice print per line (null for lines too
   if (serverOK && helperAI && helperAI.spk && helperAI.spk.ready) {
     try {
       const r = await aiHelper('spk', { lengths: clips.map((c) => (c ? c.length : 0)) }, new Blob(clips.filter(Boolean)));
-      log(`Speakers found by the helper on the ${r.device}`);
+      log(`Speakers found by the helper on the ${r.device}` + (r.seconds ? ` (load ${r.seconds.load} s, run ${r.seconds.run} s)` : ''));
       return r.embs.map((e) => (e ? Float32Array.from(e) : null));
     } catch (e) { if (e.cancel) throw e; log('The helper could not find the speakers (' + e.message + '), so the browser does it.'); }
   }
   return once('spk', { clips }, clips.filter(Boolean).map((c) => c.buffer));
 }
-async function ttsAny(args) { // MMS voices → [{ audio, sr }]
-  if (serverOK && helperAI && helperAI.tts && helperAI.tts.ready) {
+async function voicesAny(op, args) { // new voices, MMS (tts) or Kokoro → [{ audio, sr }]
+  if (serverOK && helperAI && helperAI[op] && helperAI[op].ready) {
     try {
       const head = new TextEncoder().encode(JSON.stringify(args)), n = new Uint8Array(4);
       new DataView(n.buffer).setUint32(0, head.length, true);
-      const r = await api('/api/ai/tts', { method: 'POST', body: new Blob([n, head]) });
+      const r = await api('/api/ai/' + op, { method: 'POST', body: new Blob([n, head]) });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || 'The helper could not start.');
       await follow(j.id);
@@ -1372,6 +1372,7 @@ async function ttsAny(args) { // MMS voices → [{ audio, sr }]
       return meta.lengths.map((len) => { const audio = all.slice(at, at + len); at += len; return { audio, sr: meta.sr }; });
     } catch (e) { if (e.cancel) throw e; log('The helper could not make the voices (' + e.message + '), so the browser does it.'); }
   }
+  if (op === 'kokoro') { try { return await call('kokoro', 'kokoro', args); } finally { stop('kokoro', 'done'); } }
   return once('tts', args);
 }
 async function separateHelper() { // the same split on this PC's graphics card, through the helper (upscale/separate.py)
@@ -1515,7 +1516,7 @@ async function makeVoice(fromStart) {
   try {
     const L = LANGS[$('tgt').value], texts = segs.map((s) => s.tr), kv = pickVoices();
     mark('tts');
-    const vs = kv ? await call('kokoro', 'kokoro', { voices: kv, texts }) : await ttsAny({ model: L[3], dtype: L[4], texts });
+    const vs = kv ? await voicesAny('kokoro', { voices: kv, texts }) : await voicesAny('tts', { model: L[3], dtype: L[4], texts });
     if (kv) stop('kokoro', 'done'); // free memory
     mark('mix');
     const mix = new Float32Array(Math.ceil(dur * SR)), bg = await background();

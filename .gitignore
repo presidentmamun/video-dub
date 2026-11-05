@@ -12,3 +12,4 @@ test-results/
 upscale/pylib/
 upscale/models/
 upscale/pylib-asr/
+upscale/pylib-tts/

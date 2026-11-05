@@ -16,7 +16,8 @@ import asr  # noqa: E402
 import mt  # noqa: E402
 import spk  # noqa: E402
 import tts  # noqa: E402
-AI_STEPS = {'asr': asr, 'mt': mt, 'spk': spk, 'tts': tts}  # AI steps the helper can do, each in its own process
+import kokoro  # noqa: E402
+AI_STEPS = {'asr': asr, 'mt': mt, 'spk': spk, 'tts': tts, 'kokoro': kokoro}  # AI steps the helper can do, each in its own process
 
 PORT = int(os.environ.get('VD_PORT', 8000))
 # websites whose Video Dubbing page may use this helper (besides the page served here); more with VD_ORIGINS="https://a,https://b"
