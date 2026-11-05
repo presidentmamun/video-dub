@@ -654,7 +654,7 @@ $('hget').onclick = (e) => {
     how.innerHTML = '1. Open the downloaded <b>video-dub-helper.cmd</b>. If Windows says "Windows protected your PC", press <b>More info → Run anyway</b>.<br>'
       + '2. The first time it installs what it needs (Python if missing, then about 250 MB more the first time you upscale). Keep its window open.<br>3. Press <b>Connect to the helper</b>.';
   } else {
-    how.innerHTML = 'Open Terminal and paste this line, then press Enter. Keep the window open, then press <b>Connect to the helper</b>.<br><code>curl -fsSL https://raw.githubusercontent.com/presidentmamun/video-dub/main/helper.sh | sh</code>'
+    how.innerHTML = 'Open Terminal and paste this line, then press Enter. Keep the window open, then press <b>Connect to the helper</b>.<br><code>curl -fsSL https://raw.githubusercontent.com/presidentmamun/video-dub/master/helper.sh | sh</code>'
       + '<br>On a Mac, use Chrome for this (Safari does not let websites talk to the helper).';
   }
 };
@@ -663,13 +663,13 @@ rem Video Dubbing helper: lets the Video Dubbing page use this PC's graphics car
 rem Installs to %LOCALAPPDATA%\\video-dub (code from github.com/presidentmamun/video-dub) and runs it on 127.0.0.1 only.
 set "D=%LOCALAPPDATA%\\video-dub"
 echo Getting the latest helper...
-powershell -NoProfile -Command "$ErrorActionPreference='Stop'; $z=Join-Path $env:TEMP 'vd-helper.zip'; $x=Join-Path $env:TEMP 'vd-helper'; Invoke-WebRequest 'https://github.com/presidentmamun/video-dub/archive/refs/heads/main.zip' -OutFile $z -UseBasicParsing; if (Test-Path $x) { Remove-Item $x -Recurse -Force }; Expand-Archive $z $x -Force; New-Item -ItemType Directory -Force $env:D | Out-Null; Copy-Item (Join-Path $x 'video-dub-main\\*') $env:D -Recurse -Force; Remove-Item $z, $x -Recurse -Force"
+powershell -NoProfile -Command "$ErrorActionPreference='Stop'; $z=Join-Path $env:TEMP 'vd-helper.zip'; $x=Join-Path $env:TEMP 'vd-helper'; Invoke-WebRequest 'https://github.com/presidentmamun/video-dub/archive/refs/heads/master.zip' -OutFile $z -UseBasicParsing; if (Test-Path $x) { Remove-Item $x -Recurse -Force }; Expand-Archive $z $x -Force; New-Item -ItemType Directory -Force $env:D | Out-Null; Copy-Item (Join-Path $x 'video-dub-master\\*') $env:D -Recurse -Force; Remove-Item $z, $x -Recurse -Force"
 if not exist "%D%\\server.py" (echo Could not download the helper. Check the internet connection. & pause & exit /b)
 cd /d "%D%"
 call serve.cmd --helper
 `;
 // ---- AI upscale in the browser (WebGPU + the browser's video encoder) ----
-const SR_BASE = LOCAL ? new URL('models/', location.href).href : 'https://cdn.jsdelivr.net/gh/presidentmamun/video-dub@main/models/';
+const SR_BASE = LOCAL ? new URL('models/', location.href).href : 'https://cdn.jsdelivr.net/gh/presidentmamun/video-dub@master/models/';
 const SR_MODEL = { photo: 'realesr-general-x4v3.onnx', anime: 'realesr-animevideov3.onnx' };
 const AVC = ['avc1.640033', 'avc1.640034', 'avc1.4d0033'];
 const encOK = async (w, h) => { // first H.264 profile/level this browser can encode at this size

@@ -34,7 +34,7 @@ For the fastest AI upscale a visitor runs the helper once; it installs this proj
 on `127.0.0.1:8000`, and the website's page talks to it (Chrome asks once to allow access to this device):
 
 - Windows: the page's **Get the helper** button downloads `video-dub-helper.cmd`
-- macOS / Linux: `curl -fsSL https://raw.githubusercontent.com/presidentmamun/video-dub/main/helper.sh | sh`
+- macOS / Linux: `curl -fsSL https://raw.githubusercontent.com/presidentmamun/video-dub/master/helper.sh | sh`
 
 The helper answers only its own page and the websites in `ORIGINS` in `server.py` (add more with `VD_ORIGINS`).
 
