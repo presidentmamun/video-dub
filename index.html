@@ -127,8 +127,10 @@ footer{font-size:13px;color:var(--muted)}
         <label class="f" id="vd-volw">Background volume: <span id="vd-volv"></span><input type="range" id="vd-vol" min="0" max="100"></label>
         <label class="f">Speech recognition
           <select id="vd-asr">
-                        <option value="onnx-community/whisper-base">Fast (good for English)</option>
+            <option value="auto">Automatic (best with an NVIDIA graphics card through the helper, else fast)</option>
+            <option value="onnx-community/whisper-base">Fast (good for English)</option>
             <option value="onnx-community/whisper-small">Accurate (better for non-English, needs a strong computer)</option>
+            <option value="large-v3-turbo">Best (the helper with an NVIDIA graphics card only)</option>
           </select></label>
         <label class="check"><input type="checkbox" id="vd-burn"> Burn subtitles into the video (re-encodes, slower)</label>
         <label class="check"><input type="checkbox" id="vd-review"> Let me check the translation before making the voice</label>
@@ -529,7 +531,8 @@ const ops = {
     for (const c of res) {
       c.t = clean(c.t);
       if (!c.t || junk(c.t) || c.e - c.s > 30) continue;
-      if (kept.filter((k) => k.t === c.t).length >= 2) continue; // a line repeated many times is a loop, not speech
+      const n = kept.length; // the same line three times in a row is a loop, not speech ("Okay?" said again later is speech)
+      if (n >= 2 && kept[n - 1].t === c.t && kept[n - 2].t === c.t) continue;
       kept.push(c);
     }
     return { chunks: kept, found, dropped: res.length - kept.length };
@@ -560,7 +563,7 @@ const ops = {
       // NLLB sometimes drops a sentence when given several at once, so translate them one by one
       const parts = texts[i].split(/(?<=[.?!।。？！])\s+/).filter((x) => x.trim());
       const done = [];
-      for (const s of parts) done.push((await pipe(s, { src_lang: sl, tgt_lang: tgt, max_new_tokens: 300 }))[0].translation_text.replace(/^[-–—\s]+/, ''));
+      for (const s of parts) done.push((await pipe(s, { src_lang: sl, tgt_lang: tgt, max_new_tokens: Math.min(300, 4 * s.split(/\s+/).length + 20), no_repeat_ngram_size: 4 }))[0].translation_text.replace(/^[-–—\s]+/, ''));
       res.push(done.join(' '));
       step('Translating', i + 1, texts.length);
     }
@@ -759,8 +762,8 @@ const KOKORO = {
   F: ['af_heart', 'bf_emma', 'af_bella', 'af_nicole', 'bf_isabella', 'af_sarah'],
 };
 const KOKORO_NAMES = { am_michael: 'Michael (man, US)', bm_george: 'George (man, UK)', am_fenrir: 'Fenrir (man, US)', af_heart: 'Heart (woman, US)', bf_emma: 'Emma (woman, UK)', af_bella: 'Bella (woman, US)' };
-const ASR_FAST = 'onnx-community/whisper-base', ASR_GOOD = 'onnx-community/whisper-small';
-const MAX_SPEED = 1.5, SR = 24000, SEP_WIN = 120, SEP_MARGIN = 1, SPK_TH = 0.6, MALE_F0 = 165;
+const ASR_FAST = 'onnx-community/whisper-base', ASR_GOOD = 'onnx-community/whisper-small', ASR_BEST = 'large-v3-turbo'; // BEST: helper + NVIDIA only
+const MAX_SPEED = 1.5, SR = 24000, SEP_WIN = 120, SEP_MARGIN = 1, SPK_TH = 0.6, MALE_F0 = 185, MAX_LATE = 1.2, CATCH_SPEED = 1.7; // MALE_F0: men who talk with energy reach 165-180 Hz
 const BG_VOL = { none: 0, orig: 15, ai: 100, fast: 100 };
 const STEPS = { audio: 'Read the audio', sep: 'Separate voices from music', asr: 'Recognize speech', spk: 'Find the speakers', mt: 'Translate', tts: 'Make the new voices', mix: 'Mix the audio', video: 'Build the video', share: 'Make a smaller copy', pic: 'Improve the picture', up: 'AI upscale', edit: 'Edit the video', more: 'Make the file' };
 
@@ -830,7 +833,7 @@ async function findHelper(quiet) {
   if (!location.protocol.startsWith('http')) { info.textContent = 'Not available here: open the page with serve.cmd to use this computer\'s graphics card.'; return; }
   try {
     const s = await (await api('/api/status')).json();
-    serverOK = true; $('helper').hidden = $('hhow').hidden = true; helperEdit = s.edit || null; helperSep = s.sep || null; helperAI = s.ai || null; schedule();
+    serverOK = true; $('helper').hidden = $('hhow').hidden = true; helperEdit = s.edit || null; helperSep = s.sep || null; helperAI = s.ai || null; helperNVIDIA = /nvidia/i.test(s.gpu?.name || ''); schedule();
     try { localStorage.setItem('vd-helper', '1'); } catch {}
     if (!s.gpu) { info.textContent = 'Not available: no NVIDIA, AMD or Apple graphics was found on this computer.'; return; }
     if (s.blocker) { info.textContent = `${s.gpu.name}: not available yet, ${s.blocker}`; return; }
@@ -1121,6 +1124,34 @@ function resample(a, from, to) {
   for (let i = 0; i < n; i++) { const p = i * f, j = p | 0, t = p - j; o[i] = a[j] * (1 - t) + (a[j + 1] ?? a[j]) * t; }
   return o;
 }
+function tighten(x, sr) { // a voice line without long silence: 0.05 s kept at the ends, pauses over 0.35 s cut to 0.25 s
+  const W = Math.round(sr * 0.02), n = Math.floor(x.length / W);
+  if (n < 5) return x;
+  const e = new Float32Array(n); let mx = 0;
+  for (let i = 0; i < n; i++) { let s = 0; for (let k = i * W; k < (i + 1) * W; k++) s += x[k] * x[k]; e[i] = Math.sqrt(s / W); if (e[i] > mx) mx = e[i]; }
+  const on = (i) => e[i] > mx * 0.02;
+  let a = 0, b = n - 1;
+  while (a < n && !on(a)) a++;
+  while (b > a && !on(b)) b--;
+  if (a >= b) return x;
+  const pad = Math.round(0.05 * sr / W), keep = Math.round(0.25 * sr / W) >> 1, long = Math.round(0.35 * sr / W), parts = [];
+  let from = Math.max(0, a - pad);
+  for (let i = a; i <= b;) {
+    if (on(i)) { i++; continue; }
+    let j = i; while (j <= b && !on(j)) j++;
+    if (j - i > long) { parts.push([from, i + keep]); from = j - keep; }
+    i = j;
+  }
+  parts.push([from, Math.min(n, b + 1 + pad)]);
+  const out = new Float32Array(parts.reduce((t, [p, q]) => t + (q - p) * W, 0)), F = Math.round(sr * 0.005);
+  let o = 0;
+  for (const [p, q] of parts) {
+    const seg = x.subarray(p * W, q * W);
+    for (let k = 0; k < seg.length; k++) out[o + k] = seg[k] * Math.min(1, k / F, (seg.length - 1 - k) / F); // 5 ms fades: no clicks
+    o += seg.length;
+  }
+  return out;
+}
 function addAt(mix, a, at, g = 1) { for (let i = 0, j = at; i < a.length && j < mix.length; i++, j++) if (j >= 0) mix[j] += a[i] * g; }
 function pitch(x, sr) { // median voice pitch in Hz (autocorrelation), 0 if none found
   const N = Math.round(sr * 0.04), H = Math.round(sr * 0.04), lo = Math.floor(sr / 400), hi = Math.ceil(sr / 70), vals = [];
@@ -1225,6 +1256,10 @@ function speechWindows(x, dur, joinGap = 1.5) { // where someone (or something) 
   }
   return wins;
 }
+function unloop(t) { // a word or short phrase said 3+ times in a row is a translation loop: keep it twice
+  return t.replace(/((?:\S+\s+){1,3}?)\1{2,}/gu, '$1$1').replace(/(\S+)(\s+\1){2,}(?!\S)/gu, '$1 $1').trim()
+    .replace(/(\S+)\s+(\S+)$/u, (m, a, b) => (b.length < a.length && a.startsWith(b) ? a : m)); // a cut-off last word
+}
 function merge(raw) { // join Whisper pieces into whole sentences, so translation has context
   const out = [];
   for (const c of raw) {
@@ -1272,6 +1307,21 @@ async function findSpeakers(a16) {
   const f0 = clips.map((c) => (c ? pitch(c, 16000) : 0));
   const embs = await spkAny(clips);
   const lab = cluster(embs);
+  // a "speaker" with only one or two lines (under 2% of the talk) is nearly always the same person shouting, laughing or
+  // far from the microphone: give those lines to the closest real speaker, so no extra voice appears for them
+  const talk = (k) => segs.reduce((a, s, i) => a + (lab[i] === k ? s.e - s.s : 0), 0), all = segs.reduce((a, s) => a + s.e - s.s, 0);
+  const n = Math.max(...lab) + 1, big = [...Array(n).keys()].filter((k) => lab.filter((x) => x === k).length > 2 || talk(k) > all * 0.02);
+  if (big.length && big.length < n) {
+    const unit = (e) => { let m = 0; for (const x of e) m += x * x; m = Math.sqrt(m) || 1; return e.map((x) => x / m); };
+    const cen = big.map((k) => { let c = null; lab.forEach((x, i) => { if (x === k && embs[i]) { const u = unit(embs[i]); c = c ? c.map((v, j) => v + u[j]) : Array.from(u); } }); return c && unit(c); });
+    lab.forEach((x, i) => {
+      if (big.includes(x)) return;
+      let bk = 0, bs = -2;
+      if (embs[i]) { const u = unit(embs[i]); cen.forEach((c, j) => { if (!c) return; let d = 0; for (let q = 0; q < u.length; q++) d += u[q] * c[q]; if (d > bs) { bs = d; bk = j; } }); }
+      lab[i] = big[bk];
+    });
+    const ids = [...new Set(lab)]; lab.forEach((x, i) => (lab[i] = ids.indexOf(x)));
+  }
   speakers = [];
   lab.forEach((k, i) => { (speakers[k] ||= { f0s: [] }); if (f0[i]) speakers[k].f0s.push(f0[i]); segs[i].spk = k; });
   for (let k = 0; k < speakers.length; k++) {
@@ -1337,7 +1387,7 @@ async function asrAny(args) {
       return r;
     } catch (e) { if (e.cancel) throw e; log('The helper could not recognize the speech (' + e.message + '), so the browser does it.'); }
   }
-  return once('asr', args);
+  return once('asr', args.model === ASR_BEST ? { ...args, model: ASR_GOOD } : args);
 }
 async function mtAny(args) { // → the translated lines
   if (serverOK && helperAI && helperAI.mt && helperAI.mt.ready) {
@@ -1433,7 +1483,9 @@ $('start').onclick = async () => {
   // into English Whisper can translate by itself; with several languages it writes each line down and NLLB translates (better for Bengali)
   const direct = tgt === 'en' && src !== 'en';
   const hasVoice = !!LANGS[tgt][3];
-  const asr = $('asr').value === 'auto' ? ASR_FAST : $('asr').value; // Accurate (whisper-small) needs a lot of memory, so only on request
+  const helperNV = serverOK && helperNVIDIA && helperAI?.asr?.ready; // large-v3-turbo runs well only on the helper's NVIDIA card
+  let asr = $('asr').value === 'auto' ? (helperNV ? ASR_BEST : ASR_FAST) : $('asr').value; // Accurate (whisper-small) needs a lot of memory, so only on request
+  if (asr === ASR_BEST && !helperNV) { asr = ASR_GOOD; log('The best speech model needs the helper with an NVIDIA graphics card, so the accurate one is used.'); }
   busy(true); resetOut(); segs = []; speakers = []; bgCache = null;
   for (const k in stepT) delete stepT[k];
   $('err').hidden = true; $('prog').hidden = false; $('res').hidden = true; $('edit').hidden = true;
@@ -1443,7 +1495,7 @@ $('start').onclick = async () => {
     let a16 = await pcm(['-ac', '1', '-ar', '16000']);
     dur = a16.length / 16000;
     if (!dur) throw new Error('This file has no audio.');
-    log(`Length: ${(dur / 60).toFixed(1)} min · speech model: ${asr.split('/')[1]}`);
+    log(`Length: ${(dur / 60).toFixed(1)} min · speech model: ${asr.split('/').pop()}`);
     if (sep && hasVoice) {
       mark('sep');
       const { bg, vox } = await separate();
@@ -1487,7 +1539,7 @@ $('start').onclick = async () => {
         if (s !== tgt) { mark('mt'); out = await mtAny({ texts: out, src: LANGS[s][1], tgt: LANGS[tgt][1] }); }
       }
     }
-    segs.forEach((c, i) => (c.tr = out[i]));
+    segs.forEach((c, i) => (c.tr = unloop(out[i] || '')));
     const talk = segs.reduce((a, c) => a + c.e - c.s, 0);
     log(`Speech found: ${Math.round(talk)} s of ${Math.round(dur)} s`);
     if (talk < dur * 0.15) note(`Only ${Math.round(talk)} seconds of speech were found in this ${Math.round(dur / 60)}-minute video, so the new voice is heard only there. The rest (music) stays as it is.`);
@@ -1521,27 +1573,42 @@ async function makeVoice(fromStart) {
     mark('mix');
     const mix = new Float32Array(Math.ceil(dur * SR)), bg = await background();
     if (bg) addAt(mix, bg, 0, $('vol').value / 100);
-    const match = !kv && $('voice').value === 'auto'; // MMS: shift pitch toward each speaker
-    let fast = 0, over = 0;
+    // MMS has one voice: each speaker gets one steady pitch for the whole video (a change per line made the voice
+    // jump, like two people talking). With one speaker whose gender fits the voice, the voice stays as it is.
+    const match = !kv && $('voice').value === 'auto', ps = speakers.map(() => 1);
+    if (match) {
+      const own = vs.map((x) => (x.audio.length ? pitch(x.audio.subarray(0, x.sr * 8), x.sr) : 0)).filter(Boolean).sort((a, b) => a - b);
+      const base = own[own.length >> 1] || 0, voiceF = base >= MALE_F0;
+      if (base) speakers.forEach((sp, k) => {
+        if (speakers.length === 1 && (sp.g === 'F') === voiceF) return;
+        const want = sp.f0 && (sp.f0 >= MALE_F0) === (sp.g === 'F') ? sp.f0 : (sp.g === 'F' ? 210 : 120); // gender set by hand wins
+        const p = Math.min(1.4, Math.max(0.75, want / base));
+        if (Math.abs(p - 1) >= 0.06) ps[k] = p;
+      });
+      if (ps.some((p) => p !== 1)) log('Voice pitch per speaker: ' + ps.map((p, k) => `#${k + 1} ×${p.toFixed(2)}`).join(', '));
+    }
+    // timing: two voices never play at once. A line starts at its time, or after the line before it ends; a long line
+    // may run up to MAX_LATE s into the next line's time (that one waits) before it is sped up (up to MAX_SPEED, pitch kept)
+    let fast = 0, late = 0, maxLate = 0, free = 0;
     vs.forEach((x, i) => {
       if (!x.audio.length) return;
-      const sp = speakers[segs[i].spk] || { f0: 0, g: 'M' };
-      let p = 1;
-      if (match) {
-        const base = pitch(x.audio, x.sr), want = sp.f0 || (sp.g === 'F' ? 210 : 120);
-        if (base) p = Math.min(1.6, Math.max(0.7, want / base));
-        if (Math.abs(p - 1) < 0.04) p = 1;
-      }
-      const len = x.audio.length / x.sr, slot = Math.max(0.3, (segs[i + 1]?.s ?? dur) - segs[i].s);
-      const rate = Math.min(MAX_SPEED, Math.max(1, len / slot)), r = rate / p;
+      const v = tighten(x.audio, x.sr); // without the voice model's long silences (about a fifth of its length)
+      const start = Math.max(segs[i].s, free), next = segs[i + 1]?.s ?? dur;
+      const p = ps[segs[i].spk] ?? 1, len = v.length / x.sr;
+      const room = Math.max(0.3, Math.min(dur, next + MAX_LATE) - start);
+      const behind = start - segs[i].s > MAX_LATE; // already late: catch up a little faster
+      const rate = Math.min(behind ? CATCH_SPEED : MAX_SPEED, Math.max(1, len / room)), r = rate / p;
       if (rate > 1.02) fast++;
-      if (len / rate > slot + 0.2) over++;
-      let y = p !== 1 ? resample(x.audio, x.sr * p, x.sr) : x.audio; // pitch ×p (and shorter)
+      if (start - segs[i].s > MAX_LATE + 0.3) late++;
+      maxLate = Math.max(maxLate, start - segs[i].s);
+      let y = p !== 1 ? resample(v, x.sr * p, x.sr) : v; // pitch ×p (and shorter)
       if (Math.abs(r - 1) > 0.02) y = stretch(y, r, x.sr); // back to the right length
-      addAt(mix, resample(y, x.sr, SR), Math.round(segs[i].s * SR));
+      addAt(mix, resample(y, x.sr, SR), Math.round(start * SR));
+      free = start + y.length / x.sr + 0.12; // a short breath before the next line
     });
+    log(`Voices never overlap; the latest line starts ${maxLate.toFixed(1)} s after its speaker.`);
     if (fast) note(`${fast} line(s) were sped up a little to fit (up to ${MAX_SPEED}×, pitch kept).`);
-    if (over) note(`${over} line(s) are still too long and overlap the next line. Shorten them below and make the voice again.`);
+    if (late) note(`${late} line(s) start more than ${MAX_LATE} s after the speaker because the lines before them are long. Shorten those translations below and make the voice again.`);
     const wav = toWav(mix, SR);
     if (isVideo) {
       mark('video');
@@ -2107,7 +2174,7 @@ async function recipe(e, J, B, { wav = null, subs = null, audioOnly = false }) {
 }
 
 // ---- which way to make the edit ----
-let helperEdit = null, helperSep = null, helperAI = null; // what the helper said it can do: { ready, gpu, label }
+let helperEdit = null, helperSep = null, helperAI = null, helperNVIDIA = false; // what the helper said it can do: { ready, gpu, label }
 const hasWebGL2 = (() => { try { return !!document.createElement('canvas').getContext('webgl2'); } catch { return false; } })();
 function gpuBlocker(e) { // why the graphics-card way cannot do these changes (null = it can)
   if (!self.VideoEncoder || !self.VideoDecoder || !hasWebGL2) return 'this browser has no video encoder for it';

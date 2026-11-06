@@ -48,7 +48,7 @@ Every AI step works the same way: the helper first, on the strongest hardware, e
 | Step | Helper (`upscale/…`) | Hardware, first that works |
 |---|---|---|
 | Voices from music | `separate.py`, UVR MDX-Net | DirectML (NVIDIA, AMD, Intel), CoreML, CUDA, CPU |
-| Speech recognition | `asr.py`, faster-whisper base/small | NVIDIA CUDA, else every CPU core |
+| Speech recognition | `asr.py`, faster-whisper base/small, large-v3-turbo (automatic with NVIDIA) | NVIDIA CUDA, else every CPU core |
 | Speakers | `spk.py`, WavLM base plus SV (full precision) | DirectML, CPU |
 | Translation | `mt.py`, NLLB-200 600M (CTranslate2) | NVIDIA CUDA, else every CPU core |
 | New voices (MMS) | `tts.py`, MMS / VITS | DirectML, CPU |

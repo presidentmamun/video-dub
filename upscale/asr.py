@@ -1,6 +1,6 @@
 """Speech recognition for the Video Dubbing page on this computer (used by ../server.py, one process per job).
 
-faster-whisper (CTranslate2) with the same Whisper models as the page (base / small): on an NVIDIA graphics card through
+faster-whisper (CTranslate2) with the same Whisper models as the page (base / small), plus large-v3-turbo (NVIDIA only, about 1.6 GB): on an NVIDIA graphics card through
 CUDA, otherwise on every processor core. It follows the page's own steps: speech windows from the page, language found by
 voting (or per line with "several languages"), made-up lines over music dropped, Bengali written in Devanagari fixed.
 The first time it installs faster-whisper into upscale/pylib-asr (about 330 MB) and downloads the model.
@@ -13,7 +13,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 PYLIB = os.path.join(HERE, 'pylib-asr')
 MODELS = os.path.join(HERE, 'models', 'whisper')
 NOWIN = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
-SIZES = {'onnx-community/whisper-base': 'base', 'onnx-community/whisper-small': 'small'}
+SIZES = {'onnx-community/whisper-base': 'base', 'onnx-community/whisper-small': 'small', 'large-v3-turbo': 'large-v3-turbo'}
 SR = 16000
 
 
@@ -134,6 +134,9 @@ def job(folder):
     except Exception:
         model, where = None, 'processor'
     if model is None:
+        if size == 'large-v3-turbo':  # far too slow on a processor
+            size = 'small'
+            say('No NVIDIA graphics card: using the accurate model (small) instead...', 0)
         model = WhisperModel(size, device='cpu', compute_type='int8', cpu_threads=os.cpu_count() or 4, download_root=MODELS)
     langs = a.get('langs') or {}  # page code -> Whisper language name
     name2code = {v: k for k, v in langs.items()}
@@ -191,7 +194,7 @@ def job(folder):
         c['t'] = clean(c['t'])
         if not c['t'] or junk(c['t']) or c['e'] - c['s'] > 30:
             continue
-        if sum(1 for k in kept if k['t'] == c['t']) >= 2:
+        if len(kept) >= 2 and kept[-1]['t'] == c['t'] and kept[-2]['t'] == c['t']:  # three in a row: a loop, not speech
             continue
         kept.append(c)
     json.dump({'chunks': kept, 'found': found, 'dropped': len(res) - len(kept), 'device': where},

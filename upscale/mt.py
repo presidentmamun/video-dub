@@ -79,8 +79,12 @@ def job(folder):
         batch = jobs[b:b + B]
         source = [[sl] + sp.encode(s, out_type=str) + ['</s>'] for _, _, sl, s in batch]
         res = tr.translate_batch(source, target_prefix=[[tgt]] * len(batch), beam_size=1, max_decoding_length=300)
-        for (i, k, _, _), r in zip(batch, res):
-            toks = [x for x in r.hypotheses[0] if x != tgt]
+        for (i, k, sl, s), r, x in zip(batch, res, source):
+            toks = [y for y in r.hypotheses[0] if y != tgt]
+            if len(toks) > 2 * len(x) + 10:  # far longer than the sentence: NLLB is looping ("ঘুরতে ঘুরতে ঘুরতে ..."), try again carefully
+                r2 = tr.translate_batch([x], target_prefix=[[tgt]], beam_size=4, repetition_penalty=1.3, no_repeat_ngram_size=3,
+                                        max_decoding_length=2 * len(x) + 10)[0]
+                toks = [y for y in r2.hypotheses[0] if y != tgt]
             out[i][k] = re.sub(r'^[-–—\s]+', '', sp.decode(toks))
         done += len(batch)
         asr.say(f'Translating on the {where}: {done} of {len(jobs)} sentences', done / max(1, len(jobs)))
